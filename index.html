@@ -2533,6 +2533,144 @@ async function importBulkFiles(files){
   }
 }
 
+// ==================== Supabase設定 ====================
+const SUPABASE_URL = 'https://qblcbqueyjmoozwbtgie.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_ZL1meXytjmUxypt8Dz54iw_pHGPfszh';
+const _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+let syncTimer = null;
+
+async function signInWithGoogle(){
+  const { error } = await _supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: 'https://sota-10969.github.io/kakeibo/' }
+  });
+  if(error) alert('ログインエラー: ' + error.message);
+}
+
+async function signOut(){
+  closeUserMenu();
+  await _supabase.auth.signOut();
+  currentUser = null;
+  transactions = [];
+  showLoginScreen();
+  showToast('ログアウトしました');
+}
+
+function showLoginScreen(){
+  document.getElementById('loginScreen').style.display='flex';
+}
+function hideLoginScreen(){
+  document.getElementById('loginScreen').style.display='none';
+}
+function showUserMenu(){
+  const menu = document.getElementById('userMenuPopup');
+  menu.style.display = menu.style.display==='none'?'block':'none';
+  setTimeout(()=>{ document.addEventListener('click', closeUserMenu, {once:true}); }, 100);
+}
+function closeUserMenu(){
+  document.getElementById('userMenuPopup').style.display='none';
+}
+function updateUserUI(user){
+  if(!user) return;
+  const avatar = document.getElementById('userAvatar');
+  const img = document.getElementById('userAvatarImg');
+  avatar.style.display='block';
+  if(user.user_metadata?.avatar_url) img.src=user.user_metadata.avatar_url;
+  document.getElementById('userMenuName').textContent = user.user_metadata?.full_name||'ユーザー';
+  document.getElementById('userMenuEmail').textContent = user.email||'';
+}
+
+async function syncToSupabase(){
+  if(!currentUser) return;
+  const el = document.getElementById('syncStatus');
+  if(el) el.textContent='同期中...';
+  try{
+    await _supabase.from('transactions').upsert({
+      id: currentUser.id, user_id: currentUser.id,
+      data: transactions, updated_at: new Date().toISOString()
+    });
+    const settings = {
+      budget: JSON.parse(localStorage.getItem('kakeibo_budget')||'{}'),
+      colors: JSON.parse(localStorage.getItem('kakeibo_colors')||'{}'),
+      rules: JSON.parse(localStorage.getItem('kakeibo_rules')||'[]'),
+      custom_cats: JSON.parse(localStorage.getItem('kakeibo_custom_cats')||'[]'),
+      hidden_cats: JSON.parse(localStorage.getItem('kakeibo_hidden_cats')||'[]'),
+      current_month: JSON.parse(localStorage.getItem('kakeibo_current_month')||'null'),
+    };
+    await _supabase.from('user_settings').upsert({
+      user_id: currentUser.id, data: settings, updated_at: new Date().toISOString()
+    });
+    if(el) el.textContent='同期済み ✓';
+  }catch(e){
+    if(el) el.textContent='同期失敗';
+    console.error('sync error:', e);
+  }
+}
+
+async function loadFromSupabase(){
+  if(!currentUser) return;
+  try{
+    const { data: txData } = await _supabase.from('transactions')
+      .select('data').eq('user_id', currentUser.id).single();
+    if(txData?.data){ transactions = txData.data; save(); }
+
+    const { data: stData } = await _supabase.from('user_settings')
+      .select('data').eq('user_id', currentUser.id).single();
+    if(stData?.data){
+      const s = stData.data;
+      if(s.budget) localStorage.setItem('kakeibo_budget', JSON.stringify(s.budget));
+      if(s.colors){ localStorage.setItem('kakeibo_colors', JSON.stringify(s.colors)); Object.assign(CAT_COLORS, s.colors); }
+      if(s.rules) localStorage.setItem('kakeibo_rules', JSON.stringify(s.rules));
+      if(s.custom_cats) localStorage.setItem('kakeibo_custom_cats', JSON.stringify(s.custom_cats));
+      if(s.hidden_cats) localStorage.setItem('kakeibo_hidden_cats', JSON.stringify(s.hidden_cats));
+      if(s.current_month){
+        localStorage.setItem('kakeibo_current_month', JSON.stringify(s.current_month));
+        currentYear = s.current_month.year;
+        currentMonth = s.current_month.month;
+      }
+    }
+  }catch(e){ console.error('load error:', e); }
+}
+
+const _origSave = save;
+function save(){
+  localStorage.setItem('kakeibo_tx', JSON.stringify(transactions));
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncToSupabase, 500);
+}
+
+async function initAuth(){
+  const { data: { session } } = await _supabase.auth.getSession();
+  if(session?.user){
+    currentUser = session.user;
+    updateUserUI(currentUser);
+    hideLoginScreen();
+    await loadFromSupabase();
+    updateMonthLabel();
+    renderAll();
+    initDropZone();
+  } else {
+    showLoginScreen();
+  }
+  _supabase.auth.onAuthStateChange(async (event, session)=>{
+    if(event==='SIGNED_IN' && session?.user){
+      currentUser = session.user;
+      updateUserUI(currentUser);
+      hideLoginScreen();
+      await loadFromSupabase();
+      updateMonthLabel();
+      renderAll();
+      initDropZone();
+      showToast('ログインしました！');
+    } else if(event==='SIGNED_OUT'){
+      currentUser = null;
+      showLoginScreen();
+    }
+  });
+}
+
 // ==================== 初期化 ====================
 if(location.protocol === 'file:'){
   document.getElementById('offlineBanner').style.display='block';
