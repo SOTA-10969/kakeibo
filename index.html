@@ -2158,57 +2158,50 @@ async function runAI(){
 let shareImageBlob = null;
 
 async function shareAsImage(){
-  const txs = getMonthTx(currentYear, currentMonth);
-  const income = txs.filter(t=>t.type==='income').reduce((a,t)=>a+t.amount,0);
-  const expense = txs.filter(t=>t.type==='expense').reduce((a,t)=>a+getEffectiveAmount(t),0);
-  const balance = income - expense;
-  const bycat = {};
-  txs.filter(t=>t.type==='expense').forEach(t=>{
-    const amt = getEffectiveAmount(t);
-    if(amt>0) bycat[t.category]=(bycat[t.category]||0)+amt;
-  });
-  const topCats = Object.entries(bycat).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const bg=isDark?'#1c1c1e':'#ffffff', bg2=isDark?'#2c2c2e':'#f7f7f5';
-  const text=isDark?'#f2f2f7':'#1a1a1a', text2=isDark?'#aeaeb2':'#666666';
-  const canvas = document.getElementById('shareCanvas');
-  const dpr = window.devicePixelRatio||1;
-  const W=360, H=Math.max(480, 56+72+20+20+topCats.length*44+40);
-  canvas.width=W*dpr; canvas.height=H*dpr;
-  canvas.style.width=W+'px'; canvas.style.height=H+'px';
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr,dpr);
-  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
-  ctx.fillStyle=text; ctx.font='600 18px -apple-system,sans-serif'; ctx.textAlign='center';
-  ctx.fillText(currentYear+'年'+(currentMonth+1)+'月 家計レポート', W/2, 36);
-  const cardY=56,cardH=72,cardW=(W-48)/3,cardGap=8;
-  [{label:'収入',value:income,color:'#1D9E75'},{label:'支出',value:expense,color:'#D85A30'},{label:'収支',value:balance,color:balance>=0?'#1D9E75':'#D85A30'}].forEach((item,i)=>{
-    const x=16+i*(cardW+cardGap);
-    ctx.fillStyle=bg2; roundRect(ctx,x,cardY,cardW,cardH,10); ctx.fill();
-    ctx.fillStyle=text2; ctx.font='400 11px -apple-system,sans-serif'; ctx.textAlign='center';
-    ctx.fillText(item.label,x+cardW/2,cardY+20);
-    ctx.fillStyle=item.color; ctx.font='600 14px -apple-system,sans-serif';
-    ctx.fillText('¥'+Math.round(Math.abs(item.value)).toLocaleString(),x+cardW/2,cardY+46);
-  });
-  const listY=cardY+cardH+20;
-  ctx.fillStyle=text; ctx.font='500 13px -apple-system,sans-serif'; ctx.textAlign='left';
-  ctx.fillText('支出内訳',16,listY);
-  topCats.forEach(([cat,amt],i)=>{
-    const y=listY+20+i*44, pct=expense>0?amt/expense:0, col=CAT_COLORS[cat]||'#888780';
-    ctx.fillStyle=bg2; roundRect(ctx,16,y,W-32,36,8); ctx.fill();
-    ctx.fillStyle=col; ctx.beginPath(); ctx.arc(32,y+18,5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=text; ctx.font='500 12px -apple-system,sans-serif'; ctx.textAlign='left';
-    ctx.fillText(cat,44,y+22);
-    ctx.fillStyle='#D85A30'; ctx.font='600 12px -apple-system,sans-serif'; ctx.textAlign='right';
-    ctx.fillText('-¥'+Math.round(amt).toLocaleString(),W-16,y+22);
-    ctx.fillStyle=isDark?'#3a3a3c':'#e8e8e6'; roundRect(ctx,44,y+28,W-60,4,2); ctx.fill();
-    ctx.fillStyle=col; roundRect(ctx,44,y+28,(W-60)*pct,4,2); ctx.fill();
-  });
-  ctx.fillStyle=text2; ctx.font='400 11px -apple-system,sans-serif'; ctx.textAlign='center';
-  ctx.fillText('家計簿アプリ · '+new Date().toLocaleDateString('ja-JP'),W/2,H-16);
-  canvas.toBlob(blob=>{shareImageBlob=blob;},'image/png');
-  document.getElementById('sharePreview').style.display='block';
-  if(!navigator.share) document.getElementById('nativeShareBtn').textContent='画像をコピー';
+  // 概要タブに切り替え
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===0));
+  document.querySelectorAll('.section').forEach((p,j)=>p.classList.toggle('active',j===0));
+
+  showToast('画像を生成中...');
+
+  // 少し待ってからキャプチャ（グラフ描画を待つ）
+  await new Promise(r=>setTimeout(r, 300));
+
+  const target = document.getElementById('tab0');
+  try{
+    const canvas = await html2canvas(target, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: getComputedStyle(document.body).getPropertyValue('--bg')||'#ffffff',
+      logging: false,
+      windowWidth: 390,
+    });
+
+    // プレビュー表示
+    const preview = document.getElementById('shareCanvas');
+    const ctx = preview.getContext('2d');
+    preview.width = canvas.width;
+    preview.height = canvas.height;
+    preview.style.width = '100%';
+    preview.style.height = 'auto';
+    ctx.drawImage(canvas, 0, 0);
+
+    canvas.toBlob(blob=>{
+      shareImageBlob = blob;
+      showToast('画像を生成しました');
+    }, 'image/png');
+
+    document.getElementById('sharePreview').style.display='block';
+    if(!navigator.share) document.getElementById('nativeShareBtn').textContent='画像をコピー';
+
+    // PDF出力タブに戻る
+    document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===5));
+    document.querySelectorAll('.section').forEach((p,j)=>p.classList.toggle('active',j===5));
+
+  }catch(e){
+    showToast('画像生成に失敗しました');
+    console.error(e);
+  }
 }
 
 function roundRect(ctx,x,y,w,h,r){
