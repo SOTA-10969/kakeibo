@@ -12,6 +12,7 @@
 <title>家計簿</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
@@ -270,10 +271,22 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 
 <!-- PDF出力 -->
 <div id="tab5" class="section">
+  <div class="pdf-card" style="margin-bottom:12px">
+    <h3>画像として共有</h3>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.6">今月の収支サマリーを画像として保存・共有できます。LINEやSNSにそのまま送れます。</p>
+    <button class="primary-btn" onclick="shareAsImage()" style="width:100%;margin-bottom:8px">画像を作成して共有</button>
+    <div id="sharePreview" style="margin-top:12px;display:none">
+      <canvas id="shareCanvas" style="width:100%;border-radius:var(--radius);border:0.5px solid var(--border)"></canvas>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button onclick="downloadShareImage()" style="flex:1;padding:10px;border-radius:var(--radius);font-size:13px;cursor:pointer;background:var(--text);color:var(--bg);border:none;font-weight:500">画像を保存</button>
+        <button onclick="nativeShare()" id="nativeShareBtn" style="flex:1;padding:10px;border-radius:var(--radius);font-size:13px;cursor:pointer;background:none;border:0.5px solid var(--border);color:var(--text);font-weight:500">LINEで送る</button>
+      </div>
+    </div>
+  </div>
   <div class="pdf-card">
-    <h3>月次レポートPDF出力</h3>
-    <p>現在表示中の月の収支サマリー・カテゴリ別内訳・取引履歴をPDFとして出力します。</p>
-    <button class="primary-btn" onclick="exportPDF()">PDF出力</button>
+    <h3>PDFで出力</h3>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.6">収支サマリー・カテゴリ別内訳・取引履歴をPDFとして出力します。</p>
+    <button class="primary-btn" onclick="exportPDF()" style="width:100%">PDF出力</button>
   </div>
 </div>
 
@@ -2138,6 +2151,94 @@ async function runAI(){
     el.textContent=data.content?.[0]?.text||'結果を取得できませんでした。';
   }catch(e){
     el.textContent='エラーが発生しました。しばらくしてからお試しください。';
+  }
+}
+
+// ==================== 画像共有 ====================
+let shareImageBlob = null;
+
+async function shareAsImage(){
+  const txs = getMonthTx(currentYear, currentMonth);
+  const income = txs.filter(t=>t.type==='income').reduce((a,t)=>a+t.amount,0);
+  const expense = txs.filter(t=>t.type==='expense').reduce((a,t)=>a+getEffectiveAmount(t),0);
+  const balance = income - expense;
+  const bycat = {};
+  txs.filter(t=>t.type==='expense').forEach(t=>{
+    const amt = getEffectiveAmount(t);
+    if(amt>0) bycat[t.category]=(bycat[t.category]||0)+amt;
+  });
+  const topCats = Object.entries(bycat).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const bg=isDark?'#1c1c1e':'#ffffff', bg2=isDark?'#2c2c2e':'#f7f7f5';
+  const text=isDark?'#f2f2f7':'#1a1a1a', text2=isDark?'#aeaeb2':'#666666';
+  const canvas = document.getElementById('shareCanvas');
+  const dpr = window.devicePixelRatio||1;
+  const W=360, H=Math.max(480, 56+72+20+20+topCats.length*44+40);
+  canvas.width=W*dpr; canvas.height=H*dpr;
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=text; ctx.font='600 18px -apple-system,sans-serif'; ctx.textAlign='center';
+  ctx.fillText(currentYear+'年'+(currentMonth+1)+'月 家計レポート', W/2, 36);
+  const cardY=56,cardH=72,cardW=(W-48)/3,cardGap=8;
+  [{label:'収入',value:income,color:'#1D9E75'},{label:'支出',value:expense,color:'#D85A30'},{label:'収支',value:balance,color:balance>=0?'#1D9E75':'#D85A30'}].forEach((item,i)=>{
+    const x=16+i*(cardW+cardGap);
+    ctx.fillStyle=bg2; roundRect(ctx,x,cardY,cardW,cardH,10); ctx.fill();
+    ctx.fillStyle=text2; ctx.font='400 11px -apple-system,sans-serif'; ctx.textAlign='center';
+    ctx.fillText(item.label,x+cardW/2,cardY+20);
+    ctx.fillStyle=item.color; ctx.font='600 14px -apple-system,sans-serif';
+    ctx.fillText('¥'+Math.round(Math.abs(item.value)).toLocaleString(),x+cardW/2,cardY+46);
+  });
+  const listY=cardY+cardH+20;
+  ctx.fillStyle=text; ctx.font='500 13px -apple-system,sans-serif'; ctx.textAlign='left';
+  ctx.fillText('支出内訳',16,listY);
+  topCats.forEach(([cat,amt],i)=>{
+    const y=listY+20+i*44, pct=expense>0?amt/expense:0, col=CAT_COLORS[cat]||'#888780';
+    ctx.fillStyle=bg2; roundRect(ctx,16,y,W-32,36,8); ctx.fill();
+    ctx.fillStyle=col; ctx.beginPath(); ctx.arc(32,y+18,5,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=text; ctx.font='500 12px -apple-system,sans-serif'; ctx.textAlign='left';
+    ctx.fillText(cat,44,y+22);
+    ctx.fillStyle='#D85A30'; ctx.font='600 12px -apple-system,sans-serif'; ctx.textAlign='right';
+    ctx.fillText('-¥'+Math.round(amt).toLocaleString(),W-16,y+22);
+    ctx.fillStyle=isDark?'#3a3a3c':'#e8e8e6'; roundRect(ctx,44,y+28,W-60,4,2); ctx.fill();
+    ctx.fillStyle=col; roundRect(ctx,44,y+28,(W-60)*pct,4,2); ctx.fill();
+  });
+  ctx.fillStyle=text2; ctx.font='400 11px -apple-system,sans-serif'; ctx.textAlign='center';
+  ctx.fillText('家計簿アプリ · '+new Date().toLocaleDateString('ja-JP'),W/2,H-16);
+  canvas.toBlob(blob=>{shareImageBlob=blob;},'image/png');
+  document.getElementById('sharePreview').style.display='block';
+  if(!navigator.share) document.getElementById('nativeShareBtn').textContent='画像をコピー';
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath(); ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+r); ctx.lineTo(x+w,y+h-r);
+  ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h); ctx.lineTo(x+r,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-r); ctx.lineTo(x,y+r);
+  ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+}
+
+function downloadShareImage(){
+  if(!shareImageBlob) return;
+  const url=URL.createObjectURL(shareImageBlob);
+  const a=document.createElement('a'); a.href=url;
+  a.download='家計簿_'+currentYear+'年'+(currentMonth+1)+'月.png';
+  a.click(); URL.revokeObjectURL(url);
+}
+
+async function nativeShare(){
+  if(!shareImageBlob){showToast('先に「画像を作成」を押してください');return;}
+  if(navigator.share){
+    try{
+      const file=new File([shareImageBlob],'家計簿_'+currentYear+'年'+(currentMonth+1)+'月.png',{type:'image/png'});
+      await navigator.share({title:currentYear+'年'+(currentMonth+1)+'月 家計レポート',files:[file]});
+    }catch(e){if(e.name!=='AbortError') showToast('共有に失敗しました');}
+  } else {
+    try{
+      await navigator.clipboard.write([new ClipboardItem({'image/png':shareImageBlob})]);
+      showToast('クリップボードにコピーしました');
+    }catch(e){downloadShareImage();}
   }
 }
 
