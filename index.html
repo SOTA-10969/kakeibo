@@ -2635,6 +2635,15 @@ async function initAuth(){
   }
   _supabase.auth.onAuthStateChange(async (event, session)=>{
     if(event==='SIGNED_IN' && session?.user){
+      // 同一ユーザーでの SIGNED_IN 再発火（タブ再フォーカス・ファイル選択ダイアログから
+      // 戻ったとき・トークン更新時に起きる）では loadFromSupabase を呼ばない。
+      // 呼ぶと transactions をクラウドの古い値で丸ごと上書きしてしまい、
+      // 取込直後の未同期データ（例: ゆうちょの後に取り込んだ PayPay）が消えるため。
+      // クラウドからの読み込みは新規ログイン時のみ行う。
+      if(currentUser && currentUser.id===session.user.id){
+        currentUser = session.user;
+        return;
+      }
       currentUser = session.user;
       updateUserUI(currentUser);
       hideLoginScreen();
