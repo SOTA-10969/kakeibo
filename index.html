@@ -341,6 +341,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 </div>
 
 <button class="fab" onclick="openModal()">+</button>
+<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v6</div>
 
 <!-- 手動追加モーダル -->
 <div class="modal-bg" id="modalBg" onclick="closeModalBg(event)">
@@ -1908,7 +1909,7 @@ async function importBulk(event){
     setTimeout(()=>{
       document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===0));
       document.querySelectorAll('.section').forEach((p,j)=>p.classList.toggle('active',j===0));
-      showToast(`${totalCount}件を取込みました`);
+      showToast(`${currentYear}年${currentMonth+1}月に${totalCount}件取込みました`);
     }, 100);
   }
 }
@@ -2507,7 +2508,7 @@ async function importBulkFiles(files){
       // 概要タブに切り替え
       document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===0));
       document.querySelectorAll('.section').forEach((p,j)=>p.classList.toggle('active',j===0));
-      showToast(`${totalCount}件を取込みました`);
+      showToast(`${currentYear}年${currentMonth+1}月に${totalCount}件取込みました`);
     }, 100);
   }
 }
