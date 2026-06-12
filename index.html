@@ -204,7 +204,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
   <div class="notice" style="display:flex;align-items:center;justify-content:space-between">
     <span>※カード引き落とし・PayPayチャージは集計除外済み</span>
     <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap">
-      <input type="checkbox" id="filterExcluded" onchange="renderHistory()" style="width:14px;height:14px">
+      <input type="checkbox" id="filterExcluded" onchange="renderHistory()" style="width:14px;height:14px" checked>
       除外済みも表示
     </label>
   </div>
@@ -2073,14 +2073,14 @@ function parseYucho(text){
     const date=`${y}-${m}-${d}`;
     const detail1=(c[4]||'').trim();
     const detail2=(c[5]||'').trim();
-    // PAYPAYチャージ（ＲＴ）を除外
-    if(detail2.toUpperCase().includes('PAYPAY')) continue;
-    if(detail1==='ＲＴ') continue;
     // 名前を詳細1+詳細2で構成
     const name=detail2?`${detail1} ${detail2}`:detail1||'ゆうちょ取引';
-    // カード引き落としは除外フラグ付きで記録（集計対象外・履歴には表示）
+    // PayPayチャージ・カード引き落としは「集計除外」フラグ付きで記録する。
+    // （PayPay/カードの明細CSV側で計上されるため二重計上を防ぐ。以前は continue で
+    //   完全に捨てていたが、履歴から消えて取り込めていないように見えるため記録に変更）
     const nameCheck=(detail1+detail2).toLowerCase();
     const isExcluded=
+      detail2.toUpperCase().includes('PAYPAY')||detail1==='ＲＴ'||
       nameCheck.includes('ﾗｸﾃﾝｶｰﾄﾞ')||nameCheck.includes('楽天カード')||
       nameCheck.includes('三井住友')||nameCheck.includes('ﾐﾂｲｽﾐﾄﾓ');
     const credit=parseFloat((c[2]||'').replace(/[^0-9.]/g,''))||0;
