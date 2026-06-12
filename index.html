@@ -231,7 +231,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 <div id="tab2" class="section">
   <label id="dropZone" style="display:block;width:100%;text-align:center;padding:32px 16px;border:1.5px dashed var(--border2);border-radius:var(--radius-lg);cursor:pointer;font-size:14px;color:var(--text2);background:var(--bg);transition:all 0.2s">
     CSVをここにドロップ<br><span style="font-size:12px">またはタップして選択</span>
-    <input type="file" accept=".csv" multiple style="display:none" onchange="importBulk(event)">
+    <input type="file" accept=".csv,text/csv,text/comma-separated-values,application/vnd.ms-excel" multiple style="display:none" onchange="importBulk(event)">
   </label>
   <div style="margin-top:8px;font-size:11px;color:var(--text3);line-height:1.8;padding:0 4px">
     ファイル名に「paypay／ペイペイ」「ゆうちょ／郵」「rakuten／楽天」「smbc／三井」が含まれていると自動判別します
@@ -1905,14 +1905,13 @@ async function importBulk(event){
   log.innerHTML='';
   let totalCount=0;
   for(const file of files){
-    const source=detectSource(file.name);
-    if(!source){
-      log.innerHTML+=`⚠ ${file.name}：判別できませんでした（個別取込をお使いください）<br>`;
-      continue;
-    }
-    const enc=source==='yucho'?'Shift-JIS':'UTF-8';
     try{
-      const text=await readFileAsText(file,enc);
+      const text=await readCsvSmart(file);
+      const source=detectSource(file.name)||detectSourceByContent(text);
+      if(!source){
+        log.innerHTML+=`⚠ ${file.name}：判別できませんでした（個別取込をお使いください）<br>`;
+        continue;
+      }
       let count=0;
       if(source==='paypay') count=parsePayPay(text);
       else if(source==='yucho') count=parseYucho(text);
@@ -1954,6 +1953,40 @@ function readFileAsText(file,encoding){
     reader.onerror=reject;
     reader.readAsText(file,encoding);
   });
+}
+
+// ファイルを読み、文字コード（UTF-8 / Shift-JIS）を自動判定して正しくデコードする
+async function readCsvSmart(file){
+  const buf=await file.arrayBuffer();
+  // まずUTF-8で厳密デコードを試す。Shift-JISのバイト列はUTF-8として不正になり例外が出るので、その場合はShift-JISとみなす
+  try{
+    return new TextDecoder('utf-8',{fatal:true}).decode(buf);
+  }catch(e){
+    return new TextDecoder('shift_jis').decode(buf);
+  }
+}
+
+// ファイル名で判別できないとき、CSVの中身（ヘッダー・構造）から取込元を推定する
+function detectSourceByContent(text){
+  if(!text) return null;
+  const head=text.slice(0,3000);
+  const U=head.toUpperCase();
+  // --- 固有キーワードで判定（最優先）---
+  if(head.includes('受入金額')||head.includes('払出金額')) return 'yucho';           // ゆうちょ
+  if(head.includes('取引内容')&&head.includes('取引先')) return 'paypay';           // PayPay
+  if(head.includes('利用店名・商品名')||head.includes('支払方法')||head.includes('楽天')) return 'rakuten'; // 楽天カード
+  if(head.includes('三井住友')||U.includes('VPASS')||head.includes('ご利用')) return 'smbc';      // 三井住友/Vpass
+  // --- ヘッダーや特徴語が無い場合、データ行の構造から推定 ---
+  const lines=head.split(/\r?\n/).filter(l=>l.trim());
+  for(const line of lines){
+    const c=csvSplit(line);
+    if(c.length<2) continue;
+    const d0=(c[0]||'').replace(/^["']|["']$/g,'').trim();
+    if(/^\d{8}$/.test(d0)) return 'yucho';                                          // 8桁数字日付＝ゆうちょ
+    if(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(d0)&&c.length>=9) return 'paypay';   // 9列以上＝PayPay
+    if(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(d0)&&c.length>=3) return 'smbc';     // 残りの日付付き＝三井住友扱い
+  }
+  return null;
 }
 
 function shouldExclude(name){
@@ -2584,14 +2617,13 @@ async function importBulkFiles(files){
   log.innerHTML = '';
   let totalCount = 0;
   for(const file of files){
-    const source = detectSource(file.name);
-    if(!source){
-      log.innerHTML += `⚠ ${file.name}：判別できませんでした<br>`;
-      continue;
-    }
-    const enc = source==='yucho' ? 'Shift-JIS' : 'UTF-8';
     try{
-      const text = await readFileAsText(file, enc);
+      const text = await readCsvSmart(file);
+      const source = detectSource(file.name)||detectSourceByContent(text);
+      if(!source){
+        log.innerHTML += `⚠ ${file.name}：判別できませんでした<br>`;
+        continue;
+      }
       let count = 0;
       if(source==='paypay') count=parsePayPay(text);
       else if(source==='yucho') count=parseYucho(text);
