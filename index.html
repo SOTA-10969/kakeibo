@@ -260,6 +260,13 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
     <button class="primary-btn" onclick="runAI()">分析を実行</button>
     <div class="ai-result" id="aiResult"></div>
   </div>
+  <div class="ai-card" style="margin-top:12px">
+    <h3>全期間データをコピー（Claude等に相談）</h3>
+    <p>全期間の家計データを、Claudeなどのチャットに貼り付けられる形でまとめてコピーします。「この1年の家計どう？」とAIに相談したいときに使えます。</p>
+    <button class="primary-btn" onclick="copyAllData()" style="width:100%;margin-bottom:8px">全期間データをコピー</button>
+    <button onclick="shareAllData()" style="width:100%;padding:9px;border-radius:var(--radius);font-size:13px;cursor:pointer;background:none;border:0.5px solid var(--border);color:var(--text)">共有（LINE・メール等で送る）</button>
+    <div class="ai-result" id="copyDataResult" style="white-space:pre-wrap;font-size:11px;max-height:240px;overflow:auto;display:none"></div>
+  </div>
 </div>
 
 <!-- PDF出力 -->
@@ -341,7 +348,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 </div>
 
 <button class="fab" onclick="openModal()">+</button>
-<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v6</div>
+<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v7</div>
 
 <!-- 手動追加モーダル -->
 <div class="modal-bg" id="modalBg" onclick="closeModalBg(event)">
@@ -2155,6 +2162,105 @@ async function runAI(){
   }catch(e){
     console.error('AI分析エラー:',e);
     el.textContent='エラーが発生しました。Supabaseの中継機能(ai-analyze)が未設定か、しばらくしてからお試しください。';
+  }
+}
+
+// ==================== 全期間データのコピー/共有（Claude等に貼り付け用） ====================
+function buildAllDataText(){
+  if(!transactions.length) return '家計簿データはまだありません。';
+  const fmt0 = n => Math.round(n).toLocaleString('ja-JP');
+  // 集計対象（カード引落/PayPayチャージ等の除外・現金子取引を除く）
+  const agg = transactions.filter(t=>!t.excluded && !t.cashParentId);
+  const dates = transactions.map(t=>t.date).filter(Boolean).sort();
+  const period = dates.length ? `${dates[0]} 〜 ${dates[dates.length-1]}` : '—';
+  const totalInc = agg.filter(t=>t.type==='income').reduce((a,t)=>a+t.amount,0);
+  const totalExp = agg.filter(t=>t.type==='expense').reduce((a,t)=>a+t.amount,0);
+
+  // 月別収支
+  const byMonth = {};
+  agg.forEach(t=>{
+    const d = new Date(t.date);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if(!byMonth[key]) byMonth[key] = {inc:0, exp:0};
+    if(t.type==='income') byMonth[key].inc += t.amount; else byMonth[key].exp += t.amount;
+  });
+  const monthLines = Object.keys(byMonth).sort().map(k=>{
+    const m = byMonth[k];
+    return `${k}  収入${fmt0(m.inc)}円 / 支出${fmt0(m.exp)}円 / 収支${fmt0(m.inc-m.exp)}円`;
+  });
+
+  // カテゴリ別支出
+  const byCat = {};
+  agg.filter(t=>t.type==='expense').forEach(t=>{ byCat[t.category] = (byCat[t.category]||0) + t.amount; });
+  const catLines = Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
+    `${k}: ${fmt0(v)}円 (${totalExp>0?(v/totalExp*100).toFixed(1):0}%)`);
+
+  // 全取引明細
+  const txLines = transactions.slice()
+    .sort((a,b)=>new Date(a.date)-new Date(b.date))
+    .map(t=>{
+      const sign = t.type==='income' ? '+' : '-';
+      const ex = t.excluded ? ' [集計除外]' : '';
+      return `${t.date} ${sign}${fmt0(t.amount)}円 ${t.category} ${t.name}${t.source?' ('+t.source+')':''}${ex}`;
+    });
+
+  return [
+    '# 家計簿データ（全期間）',
+    `対象期間: ${period}`,
+    `総収入: ${fmt0(totalInc)}円`,
+    `総支出: ${fmt0(totalExp)}円`,
+    `収支合計: ${fmt0(totalInc-totalExp)}円`,
+    '',
+    '## 月別収支',
+    ...monthLines,
+    '',
+    '## カテゴリ別支出（全期間）',
+    ...catLines,
+    '',
+    `## 全取引明細（${transactions.length}件・[集計除外]はカード引落/PayPayチャージ等で合計には含めていません）`,
+    ...txLines,
+  ].join('\n');
+}
+
+async function copyAllData(){
+  const text = buildAllDataText();
+  const res = document.getElementById('copyDataResult');
+  try{
+    await navigator.clipboard.writeText(text);
+    showToast('全期間データをコピーしました');
+    if(res){
+      res.style.display = 'block';
+      res.textContent = '✓ コピー完了。Claudeなどのチャットに貼り付けて相談できます。\n\n--- プレビュー（先頭部分）---\n'
+        + text.slice(0,600) + (text.length>600 ? '\n…（以下省略。コピーには全件入っています）' : '');
+    }
+  }catch(e){
+    // クリップボードが使えない環境向け：テキストエリアで手動コピー
+    if(res){
+      res.style.display = 'block';
+      res.innerHTML = '';
+      const msg = document.createElement('div');
+      msg.textContent = '自動コピーできませんでした。下の枠を全選択してコピーしてください:';
+      res.appendChild(msg);
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.width='100%'; ta.style.height='180px'; ta.style.fontSize='11px'; ta.readOnly=true;
+      res.appendChild(ta);
+      ta.focus(); ta.select();
+    }
+    showToast('手動でコピーしてください');
+  }
+}
+
+async function shareAllData(){
+  const text = buildAllDataText();
+  if(navigator.share){
+    try{
+      await navigator.share({ title:'家計簿データ（全期間）', text });
+    }catch(e){
+      if(e.name!=='AbortError') showToast('共有に失敗しました');
+    }
+  }else{
+    // 共有非対応（多くのPC）の場合はコピーで代替
+    copyAllData();
   }
 }
 
