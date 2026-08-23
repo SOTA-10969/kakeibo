@@ -227,9 +227,18 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
     <input type="file" accept=".csv,text/csv,text/comma-separated-values,application/vnd.ms-excel" multiple style="display:none" onchange="importBulk(event)">
   </label>
   <div style="margin-top:8px;font-size:11px;color:var(--text3);line-height:1.8;padding:0 4px">
-    ファイル名に「paypay／ペイペイ」「ゆうちょ／郵」「rakuten／楽天」「smbc／三井」が含まれていると自動判別します
+    ファイル名に「paypay／ペイペイ」「ゆうちょ／郵」「rakuten／楽天／enavi」「smbc／三井」が含まれていると自動判別します<br>
+    <span style="color:var(--text2)">クレジットカードの明細は「請求月」に計上します。</span>例）楽天の <b>enavi202607.csv</b>（中身は6月の利用日）は <b>7月</b> に入ります。
   </div>
   <div class="import-log" id="importLog" style="margin-top:8px"></div>
+
+  <!-- 重複チェック -->
+  <div style="margin-top:20px;background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:14px">
+    <div style="font-size:13px;font-weight:500;margin-bottom:4px">重複チェック</div>
+    <p style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">表示中の月に、同じ取引が二重に入っていないか調べます。同じファイルを2回取り込んだときや、カードの支払いが銀行側にも出ているときに見つかります。</p>
+    <button onclick="runDupCheck()" style="width:100%;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:var(--text);color:var(--bg);border:none">表示中の月をチェック</button>
+    <div id="dupResult" style="margin-top:10px"></div>
+  </div>
 
   <!-- 月別データ一覧 -->
   <div style="margin-top:20px">
@@ -348,7 +357,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 </div>
 
 <button class="fab" onclick="openModal()">+</button>
-<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v7</div>
+<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v10</div>
 
 <!-- 手動追加モーダル -->
 <div class="modal-bg" id="modalBg" onclick="closeModalBg(event)">
@@ -639,6 +648,39 @@ let expChart=null,incChart=null,monthlyChart=null;
 // ==================== ユーティリティ ====================
 function save(){localStorage.setItem('kakeibo_tx',JSON.stringify(transactions));}
 function fmt(n){return '¥'+Math.round(Math.abs(n)).toLocaleString();}
+
+// ==================== 計上月（どの月の家計に入れるか） ====================
+// クレジットカードの明細は「利用日」と「請求（支払）月」がずれる。
+// 例) 楽天カード enavi202607.csv ＝ 6月に使った分が 7月請求。
+//     利用日で振り分けると「7月分のファイル」が丸ごと6月に入ってしまう。
+// そこで tx.ym（'YYYY-MM' 形式の計上月）を持たせ、集計・表示はすべて ym を基準にする。
+// ym が無い取引（PayPay・ゆうちょ・手動入力など）は従来どおり取引日をそのまま使う。
+const CARD_SOURCES=['楽天カード','三井住友カード'];
+
+function txYM(tx){
+  if(tx.ym&&/^\d{4}-\d{2}$/.test(tx.ym)){
+    return {y:parseInt(tx.ym.slice(0,4),10), m:parseInt(tx.ym.slice(5,7),10)-1};
+  }
+  const d=new Date(tx.date);
+  return {y:d.getFullYear(), m:d.getMonth()};
+}
+function txYMKey(tx){
+  const t=txYM(tx);
+  return t.y+'-'+String(t.m+1).padStart(2,'0');
+}
+function inMonth(tx,y,m){
+  const t=txYM(tx);
+  return t.y===y&&t.m===m;
+}
+// 利用日の翌月を請求月とみなす（月末締め・翌月払いのカードの標準ルール）
+function nextMonthYM(dateStr){
+  const d=new Date(dateStr);
+  if(isNaN(d.getTime())) return null;
+  let y=d.getFullYear(), m=d.getMonth()+1;
+  if(m>11){m=0;y++;}
+  return y+'-'+String(m+1).padStart(2,'0');
+}
+
 function getMonthTx(y,m){
   return transactions.filter(tx=>{
     if(tx.excluded) return false;
@@ -648,8 +690,7 @@ function getMonthTx(y,m){
     if(tx.category==='回収'&&tx.kaishuParentId) return false;
     // 回収完了した支出は除外（差額0なので不要）
     if(tx.type==='expense'&&isKaishuComplete(tx.id)) return false;
-    const d=new Date(tx.date);
-    return d.getFullYear()===y&&d.getMonth()===m;
+    return inMonth(tx,y,m);
   });
 }
 
@@ -685,8 +726,7 @@ function getMonthTxWithCash(y,m){
   // 現金子取引も含めた全取引（グラフ・予算計算用）
   return transactions.filter(tx=>{
     if(tx.excluded) return false;
-    const d=new Date(tx.date);
-    if(d.getFullYear()!==y||d.getMonth()!==m) return false;
+    if(!inMonth(tx,y,m)) return false;
     // 現金引き出し親は子取引がある場合は除外し、子取引で計上
     if(!tx.cashParentId){
       const isCashWithdraw = tx.source==='ゆうちょ' && tx.type==='expense' && (tx.name.includes('カード')||tx.name.includes('ATM')||tx.name.includes('現金'));
@@ -698,6 +738,19 @@ function getMonthTxWithCash(y,m){
     return true;
   });
 }
+// 既に取り込み済みのカード明細に計上月（請求月＝利用日の翌月）を後付けする。
+// ym が無いカード取引だけを対象にするので、何度呼んでも結果は変わらない。
+function migrateCardBillingMonth(){
+  let changed=false;
+  transactions.forEach(tx=>{
+    if(tx.ym) return;
+    if(!CARD_SOURCES.includes(tx.source)) return;
+    const ym=nextMonthYM(tx.date);
+    if(ym){tx.ym=ym;changed=true;}
+  });
+  return changed;
+}
+
 function updateMonthLabel(){
   document.getElementById('monthLabel').textContent=currentYear+'年'+(currentMonth+1)+'月';
   // 表示中の月を保存
@@ -854,8 +907,7 @@ function renderMonthDataList(){
 
   const monthMap={};
   transactions.filter(t=>!t.excluded&&!t.cashParentId).forEach(t=>{
-    const d=new Date(t.date);
-    const key=d.getFullYear()+'-'+(String(d.getMonth()+1).padStart(2,'0'));
+    const key=txYMKey(t);
     if(!monthMap[key]) monthMap[key]={sources:{},income:0,expense:0};
     const src=t.source||'手動';
     monthMap[key].sources[src]=(monthMap[key].sources[src]||0)+1;
@@ -907,20 +959,13 @@ function renderMonthDataList(){
 
 function deleteByMonthSource(key, source){
   const [y,m]=key.split('-');
-  const count=transactions.filter(t=>{
-    const d=new Date(t.date);
-    return d.getFullYear()===parseInt(y)&&d.getMonth()===parseInt(m)-1&&(t.source||'手動')===source;
-  }).length;
+  const isTarget=t=>txYMKey(t)===key&&(t.source||'手動')===source;
+  const count=transactions.filter(isTarget).length;
   if(!confirm(`${y}年${parseInt(m)}月の「${source}」データ ${count}件を削除しますか？`)) return;
   // 子取引も含めて削除
-  const parentIds=transactions.filter(t=>{
-    const d=new Date(t.date);
-    return d.getFullYear()===parseInt(y)&&d.getMonth()===parseInt(m)-1&&(t.source||'手動')===source;
-  }).map(t=>t.id);
+  const parentIds=transactions.filter(isTarget).map(t=>t.id);
   transactions=transactions.filter(t=>{
-    const d=new Date(t.date);
-    const sameMonth=d.getFullYear()===parseInt(y)&&d.getMonth()===parseInt(m)-1;
-    if(sameMonth&&(t.source||'手動')===source) return false;
+    if(isTarget(t)) return false;
     if(t.cashParentId&&parentIds.includes(t.cashParentId)) return false;
     return true;
   });
@@ -929,16 +974,208 @@ function deleteByMonthSource(key, source){
 
 function deleteByMonth(key){
   const [y,m]=key.split('-');
-  const count=transactions.filter(t=>{
-    const d=new Date(t.date);
-    return d.getFullYear()===parseInt(y)&&d.getMonth()===parseInt(m)-1&&!t.cashParentId;
-  }).length;
+  const count=transactions.filter(t=>txYMKey(t)===key&&!t.cashParentId).length;
   if(!confirm(`${y}年${parseInt(m)}月のデータ ${count}件をすべて削除しますか？`)) return;
-  transactions=transactions.filter(t=>{
-    const d=new Date(t.date);
-    return !(d.getFullYear()===parseInt(y)&&d.getMonth()===parseInt(m)-1);
-  });
+  transactions=transactions.filter(t=>txYMKey(t)!==key);
   save(); renderAll();
+}
+
+// ==================== 重複チェック ====================
+// 「同じ取引が二重に入っていないか」を調べる。主な原因は
+//   ① 同じCSVを2回取り込んだ（このアプリは以前チェックしていなかった）
+//   ② カードの支払いが、カード明細と銀行の引き落としの両方で計上された
+// ①は日付・金額・店名・ソースが完全一致、②は日付・金額が一致してソースが違う、で見つかる。
+function dupNameKey(s){return (s||'').replace(/[\s　]+/g,'').toLowerCase();}
+function dupKey(t){
+  return [t.date,Math.round(t.amount),t.type,dupNameKey(t.name),t.source||'手動'].join('|');
+}
+
+// idの先頭はmakeId()が入れた取込時刻(Date.now())。同じCSVの行はミリ秒単位でほぼ同時刻、
+// 取り込み直した重複は必ず時間が離れる。これで「明細どおりの同額2件」と「二重取込」を区別する。
+function idTime(id){
+  const m=String(id||'').match(/^(\d{13})/);
+  return m?parseInt(m[1],10):null;
+}
+const SAME_IMPORT_MS=5000;
+
+// 同じ内容の取引を「どのCSVの、どの取込か」でまとめる。
+// 塊が2つ以上できたら、同じ取引が別々に入ってきた＝重複。
+// ・同じファイルを2回取り込んだ  → ファイル名は同じだが取込時刻が離れる
+// ・期間が重なった別ファイルを一緒にドロップ → 時刻はほぼ同じだがファイル名が違う
+//   （ゆうちょ・PayPayは期間指定ダウンロードなので、これが起きやすい）
+// どちらも別の塊になるよう、ファイル名と時刻の両方で区切る。
+function importClusters(group){
+  const sorted=[...group].sort((a,b)=>(idTime(a.id)||0)-(idTime(b.id)||0));
+  const clusters=[];
+  sorted.forEach(t=>{
+    const last=clusters[clusters.length-1];
+    const prevTx=last?last[last.length-1]:null;
+    const near=prevTx&&idTime(t.id)!==null&&idTime(prevTx.id)!==null
+      &&idTime(t.id)-idTime(prevTx.id)<=SAME_IMPORT_MS;
+    // 取込元ファイルが両方わかっていて違うなら、時刻が近くても別の塊
+    const sameFile=!prevTx||!t.file||!prevTx.file||t.file===prevTx.file;
+    if(near&&sameFile) last.push(t);
+    else clusters.push([t]);
+  });
+  return clusters;
+}
+
+// 重複グループのうち、どれを残してどれを消すか。
+// 明細に元から複数行あるケース（918円×2 が2回取り込まれて4件、など）を壊さないよう、
+// 「1件だけ残す」のではなく「取込1回分の塊をまるごと1つ残す」。
+function dupResolution(group){
+  const clusters=importClusters(group);
+  if(clusters.length<2) return {keep:group,remove:[]};
+  // 件数が最も多い塊を残す（同数なら新しい方）
+  let best=0;
+  clusters.forEach((c,i)=>{ if(c.length>=clusters[best].length) best=i; });
+  const keep=clusters[best];
+  const remove=clusters.filter((_,i)=>i!==best).flat();
+  return {keep,remove};
+}
+
+function findDuplicates(y,m){
+  const txs=transactions.filter(t=>!t.excluded&&!t.cashParentId&&inMonth(t,y,m));
+
+  // 日付・金額・店名・ソースが完全に同じもの
+  const byExact={};
+  txs.forEach(t=>{(byExact[dupKey(t)]=byExact[dupKey(t)]||[]).push(t);});
+  const allSame=Object.values(byExact).filter(g=>g.length>1);
+
+  // ① 二重取込（別々のファイル／別々のタイミングで入ってきた同じ取引）
+  const exact=allSame.filter(g=>importClusters(g).length>1)
+    .sort((a,b)=>b[0].amount*(b.length-1)-a[0].amount*(a.length-1));
+  // ①' 1回の取込・同じCSVの中に元から複数行あるもの（明細どおりの可能性が高い）
+  const sameFile=allSame.filter(g=>importClusters(g).length===1)
+    .sort((a,b)=>b[0].amount-a[0].amount);
+
+  // ② 別ソース重複（カード払いが銀行側にも出ている疑い）
+  const exactIds=new Set(allSame.flat().map(t=>t.id));
+  const byDayAmt={};
+  txs.filter(t=>t.type==='expense'&&!exactIds.has(t.id)).forEach(t=>{
+    const k=t.date+'|'+Math.round(t.amount);
+    (byDayAmt[k]=byDayAmt[k]||[]).push(t);
+  });
+  const cross=Object.values(byDayAmt)
+    .filter(g=>g.length>1&&new Set(g.map(t=>t.source||'手動')).size>1)
+    .sort((a,b)=>b[0].amount-a[0].amount);
+
+  // 重複を解消したら減る金額
+  const excess=exact.reduce((a,g)=>a+dupResolution(g).remove.reduce((s,t)=>s+t.amount,0),0);
+  return {exact,sameFile,cross,excess,checked:txs.length};
+}
+
+function runDupCheck(){
+  const el=document.getElementById('dupResult');
+  const r=findDuplicates(currentYear,currentMonth);
+  const head=`<div style="font-size:11px;color:var(--text3);margin-bottom:8px">${currentYear}年${currentMonth+1}月の ${r.checked}件をチェックしました</div>`;
+
+  if(!r.exact.length&&!r.cross.length&&!r.sameFile.length){
+    el.innerHTML=head+`<div style="padding:12px;border-radius:var(--radius);background:#5DCAA522;color:#1D9E75;font-size:13px;font-weight:500;text-align:center">✅ 重複は見つかりませんでした</div>`;
+    return;
+  }
+
+  const row=t=>{
+    const d=new Date(t.date);
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0">
+      <span style="color:var(--text3);flex-shrink:0">${(d.getMonth()+1)}/${d.getDate()}</span>
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(t.name)}</span>
+      <span style="color:var(--text3);flex-shrink:0;font-size:10px">${t.source||'手動'}</span>
+      <span style="flex-shrink:0;font-weight:500">${fmt(t.amount)}</span>
+    </div>`;
+  };
+
+  let html=head;
+
+  if(!r.exact.length){
+    html+=`<div style="padding:10px 12px;border-radius:var(--radius);background:#5DCAA522;color:#1D9E75;font-size:12px;font-weight:500;margin-bottom:8px">✅ 二重取込による重複はありません</div>`;
+  }
+
+  if(r.exact.length){
+    html+=`<div style="padding:10px 12px;border-radius:var(--radius);background:#D85A3022;color:#D85A30;font-size:12px;font-weight:500;margin-bottom:8px">
+      二重取込の疑いが ${r.exact.length}組（重複分 ${fmt(r.excess)}）<br>
+      <span style="font-weight:400;font-size:11px">別々のタイミングで取り込まれた、まったく同じ取引です</span>
+    </div>`;
+    html+=r.exact.map((g,i)=>{
+      const res=dupResolution(g);
+      return `<div style="border:0.5px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:6px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">同じ取引が ${g.length}件（${res.keep.length}件だけ残します）</div>
+      ${g.map(row).join('')}
+      <button onclick="resolveDupGroup(${i})" style="width:100%;margin-top:8px;padding:7px;border-radius:6px;font-size:12px;cursor:pointer;background:var(--text);color:var(--bg);border:none;font-weight:500">${res.remove.length}件を削除（-${fmt(res.remove.reduce((a,t)=>a+t.amount,0))}）</button>
+    </div>`;}).join('');
+    html+=`<button onclick="resolveAllDups()" style="width:100%;margin:4px 0 12px;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:#D85A30;color:#fff;border:none">重複 ${r.exact.length}組をまとめて解消（-${fmt(r.excess)}）</button>`;
+  }
+
+  if(r.sameFile.length){
+    html+=`<div style="padding:10px 12px;border-radius:var(--radius);background:var(--bg2);color:var(--text2);font-size:12px;margin-bottom:8px;margin-top:12px">
+      <b style="color:var(--text)">同じ内容が同じ日に複数件（${r.sameFile.length}組）</b><br>
+      <span style="font-size:11px">1回の取込で入ったものです。<b>明細に元から複数行ある＝本物の決済</b>のことが多いので、まとめては消しません。心当たりがなければ組ごとに減らしてください。</span>
+    </div>`;
+    html+=r.sameFile.map((g,i)=>{
+      const files=[...new Set(g.map(t=>t.file).filter(Boolean))];
+      const meta=files.length?`<div style="font-size:10px;color:var(--text3);margin-top:4px;word-break:break-all">取込元: ${files.map(escHtml).join(' / ')}</div>`:
+        `<div style="font-size:10px;color:var(--text3);margin-top:4px">取込元ファイル不明（この機能を入れる前に取り込んだデータ）</div>`;
+      return `<div style="border:0.5px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:6px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">同じ内容が ${g.length}件</div>
+      ${g.map(row).join('')}${meta}
+      <button onclick="trimSameFileGroup(${i})" style="width:100%;margin-top:8px;padding:7px;border-radius:6px;font-size:12px;cursor:pointer;background:none;border:0.5px solid var(--border);color:var(--text2)">1件だけ残して ${g.length-1}件を削除</button>
+    </div>`;}).join('');
+  }
+
+  if(r.cross.length){
+    html+=`<div style="padding:10px 12px;border-radius:var(--radius);background:#EF9F2722;color:#BA7517;font-size:12px;font-weight:500;margin-bottom:8px;margin-top:12px">
+      同じ日・同じ金額で別々のソースにある取引が ${r.cross.length}組<br>
+      <span style="font-weight:400;font-size:11px">カード払いが銀行側にも出ている可能性があります。二重なら片方を「集計除外」にしてください</span>
+    </div>`;
+    html+=r.cross.map(g=>`<div style="border:0.5px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:6px">
+      ${g.map(t=>`${row(t)}<button onclick="excludeTx('${t.id}')" style="width:100%;margin-top:4px;padding:5px;border-radius:6px;font-size:11px;cursor:pointer;background:none;border:0.5px solid var(--border);color:var(--text2)">この「${t.source||'手動'}」側を集計除外にする</button>`).join('')}
+    </div>`).join('');
+  }
+
+  el.innerHTML=html;
+}
+
+function applyDupRemoval(list){
+  const removeIds=new Set(list.map(t=>t.id));
+  transactions=transactions.filter(t=>!removeIds.has(t.id)&&!(t.cashParentId&&removeIds.has(t.cashParentId)));
+  save(); renderAll(); runDupCheck();
+  showToast(`${removeIds.size}件の重複を削除しました`);
+}
+
+// 二重取込ぶんを削除する（取込1回分の塊は残す）
+function resolveDupGroup(idx){
+  const g=findDuplicates(currentYear,currentMonth).exact[idx];
+  if(!g) return;
+  const res=dupResolution(g);
+  if(!res.remove.length) return;
+  if(!confirm(`「${g[0].name}」${fmt(g[0].amount)} の重複 ${res.remove.length}件を削除しますか？（${res.keep.length}件は残ります）`)) return;
+  applyDupRemoval(res.remove);
+}
+
+// 「同じ内容が複数件」を手動で1件に減らす（自動では消さない側）
+function trimSameFileGroup(idx){
+  const g=findDuplicates(currentYear,currentMonth).sameFile[idx];
+  if(!g||g.length<2) return;
+  if(!confirm(`「${g[0].name}」${fmt(g[0].amount)} を1件だけ残して ${g.length-1}件を削除します。\n\n明細に元から複数行ある場合（同じ店で同じ金額を同日に複数回決済）は、本物の取引が消えます。よろしいですか？`)) return;
+  applyDupRemoval(g.slice(1));
+}
+
+function resolveAllDups(){
+  const r=findDuplicates(currentYear,currentMonth);
+  if(!r.exact.length) return;
+  const remove=r.exact.flatMap(g=>dupResolution(g).remove);
+  if(!remove.length) return;
+  if(!confirm(`重複 ${remove.length}件を削除します。支出は ${fmt(r.excess)} 減ります。よろしいですか？`)) return;
+  applyDupRemoval(remove);
+}
+
+// 集計から外す（削除せず履歴には残す）
+function excludeTx(id){
+  const tx=transactions.find(t=>t.id===id);
+  if(!tx) return;
+  tx.excluded=true;
+  save(); renderAll(); runDupCheck();
+  showToast('集計から除外しました');
 }
 
 function jumpToMonth(y,m){
@@ -1005,8 +1242,7 @@ function renderHistory(){
   const showExcluded=document.getElementById('filterExcluded')?.checked;
   // 通常取引＋除外済み（表示フラグONの場合）
   let txs=transactions.filter(tx=>{
-    const d=new Date(tx.date);
-    if(d.getFullYear()!==currentYear||d.getMonth()!==currentMonth) return false;
+    if(!inMonth(tx,currentYear,currentMonth)) return false;
     if(tx.cashParentId) return false;
     if(tx.excluded) return showExcluded;
     if(tx.tatekaePairId) return showExcluded; // 立替ペア済みも除外済みと同様に扱う
@@ -1020,6 +1256,10 @@ function renderHistory(){
   list.innerHTML=txs.map(tx=>{
     const d=new Date(tx.date);
     const ds=(d.getMonth()+1)+'/'+(d.getDate());
+    // カード明細は「利用日」と「計上月（請求月）」がずれるので、利用日の月が違うときだけ注記する
+    const billed=txYM(tx);
+    const billedNote=(billed.m!==d.getMonth()||billed.y!==d.getFullYear())
+      ? ` · ${billed.m+1}月請求` : '';
     const col=CAT_COLORS[tx.category]||'#888780';
     const sign=tx.type==='income'?'+':'-';
     const cls=tx.type==='income'?'inc':'exp';
@@ -1061,7 +1301,7 @@ function renderHistory(){
       <span class="tx-cat-dot" style="background:${col};flex-shrink:0"></span>
       <div class="tx-info" style="min-width:0">
         <div class="tx-name">${escHtml(tx.name)}${excludedBadge}${tatekaeKaishuBadge}</div>
-        <div class="tx-meta">${ds}${tx.source?' · '+tx.source:''}</div>
+        <div class="tx-meta">${ds}${tx.source?' · '+tx.source:''}${billedNote}</div>
       </div>
       <span class="tx-amount ${cls}">${sign}${fmt(effectiveAmt)}${isPartialKaishu?`<span style="font-size:10px;color:var(--text3);text-decoration:line-through;margin-left:3px">${fmt(tx.amount)}</span>`:''}</span>
       <button class="tx-del" onclick="deleteTx('${tx.id}')">×</button>
@@ -1868,9 +2108,83 @@ function detectSource(filename){
   const n=filename.toLowerCase();
   if(n.includes('paypay')||n.includes('ペイペイ')) return 'paypay';
   if(n.includes('yucho')||n.includes('ゆうちょ')||n.includes('郵')) return 'yucho';
-  if(n.includes('rakuten')||n.includes('楽天')) return 'rakuten';
+  // 楽天e-NAVIのCSVは enavi202607(8971).csv のようなファイル名で「楽天」が入らない
+  if(n.includes('rakuten')||n.includes('楽天')||n.includes('enavi')) return 'rakuten';
   if(n.includes('smbc')||n.includes('三井')||n.includes('vpass')) return 'smbc';
   return null;
+}
+
+// ==================== カード明細の請求月判定 ====================
+// カードCSVは「利用日」しか列に持たないが、ファイルは請求月（支払月）単位で配布される。
+// 例) enavi202607.csv = 6月利用分の7月請求。これを7月として計上するため、請求月を割り出す。
+// 優先順: ファイル名 → CSVヘッダー（楽天のみ）→ 利用日の翌月
+
+// ファイル名から請求年月を取る（enavi202607 / 202607 / 2026-07 / 2026年7月 など）
+function billingYMFromFilename(filename){
+  if(!filename) return null;
+  const n=filename.replace(/\.csv$/i,'');
+  let m=n.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月/);
+  if(m) return m[1]+'-'+String(m[2]).padStart(2,'0');
+  m=n.match(/(20\d{2})[-_\/\.]?(0[1-9]|1[0-2])(?!\d)/);
+  if(m) return m[1]+'-'+m[2];
+  return null;
+}
+
+// 楽天CSVのヘッダー「"7月支払金額"」から請求月を取る（年は明細の利用日から推定）
+function billingYMFromRakutenHeader(text){
+  const head=(text||'').split(/\r?\n/)[0]||'';
+  const h=head.match(/(\d{1,2})月支払金額/);
+  if(!h) return null;
+  const bm=parseInt(h[1],10);
+  const u=(text||'').match(/(20\d{2})[\/\-](\d{1,2})[\/\-]\d{1,2}/);
+  if(!u) return null;
+  let y=parseInt(u[1],10);
+  // 12月利用 → 翌年1月請求 の年またぎに対応
+  if(parseInt(u[2],10)===12&&bm===1) y+=1;
+  return y+'-'+String(bm).padStart(2,'0');
+}
+
+// このCSV全体の請求月。判定できなければ null（行ごとに「利用日の翌月」で補う）
+function resolveBillingYM(source,text,filename){
+  if(source!=='rakuten'&&source!=='smbc') return null;
+  return billingYMFromFilename(filename)
+    || (source==='rakuten' ? billingYMFromRakutenHeader(text) : null);
+}
+
+// 取込直後に、既に入っている取引と同じものが増えていないか調べて取り消す。
+// 同じ店・同じ金額の決済が同じ日に複数回あることは実際にある（例: KLINGAI 918円が2件）ので、
+// 「同じ内容が何件あるか」で比較し、既存で足りている分だけを取り消す。
+// 結果の件数は max(既存, 今回) になるので、同じCSVを2回入れても増えない。
+// 取り込んだ行に「どのCSVから来たか」を記録する。重複判定の決め手になる。
+function stampSourceFile(startIndex,filename){
+  if(!filename) return;
+  for(let i=startIndex;i<transactions.length;i++) transactions[i].file=filename;
+}
+
+function dedupeImported(startIndex){
+  const added=transactions.slice(startIndex);
+  if(!added.length) return 0;
+  const existing=transactions.slice(0,startIndex);
+  const have={};
+  existing.forEach(t=>{const k=dupKey(t);have[k]=(have[k]||0)+1;});
+  const nth={},keep=[];
+  let skipped=0;
+  added.forEach(t=>{
+    const k=dupKey(t);
+    nth[k]=(nth[k]||0)+1;
+    if((have[k]||0)>=nth[k]){skipped++;return;}
+    keep.push(t);
+  });
+  transactions=existing.concat(keep);
+  return skipped;
+}
+
+// 取込ログに「どの月に入れたか」を出す（カード明細のみ）
+function billingNote(source,text,filename){
+  if(source!=='rakuten'&&source!=='smbc') return '';
+  const ym=resolveBillingYM(source,text,filename);
+  if(ym) return ` → ${parseInt(ym.slice(5,7),10)}月請求分として計上`;
+  return ' → 利用日の翌月（請求月）に計上';
 }
 
 async function importBulk(event){
@@ -1887,13 +2201,18 @@ async function importBulk(event){
         log.innerHTML+=`⚠ ${file.name}：判別できませんでした（個別取込をお使いください）<br>`;
         continue;
       }
+      const before=transactions.length;
       let count=0;
       if(source==='paypay') count=parsePayPay(text);
       else if(source==='yucho') count=parseYucho(text);
-      else if(source==='rakuten') count=parseRakuten(text);
-      else if(source==='smbc') count=parseSMBC(text);
+      else if(source==='rakuten') count=parseRakuten(text,file.name);
+      else if(source==='smbc') count=parseSMBC(text,file.name);
+      stampSourceFile(before,file.name);
+      const skipped=dedupeImported(before);
+      count=Math.max(0,count-skipped);
       const names={paypay:'PayPay',yucho:'ゆうちょ',rakuten:'楽天カード',smbc:'三井住友カード'};
-      log.innerHTML+=`✓ ${names[source]}（${file.name}）: ${count}件取込完了<br>`;
+      const dupNote=skipped?`<span style="color:var(--text3)">（取込済みの ${skipped}件はスキップ）</span>`:'';
+      log.innerHTML+=`✓ ${names[source]}（${file.name}）: ${count}件取込完了${billingNote(source,text,file.name)}${dupNote}<br>`;
       totalCount+=count;
     }catch(e){
       log.innerHTML+=`✗ ${file.name}：読込エラー<br>`;
@@ -1903,13 +2222,13 @@ async function importBulk(event){
   log.innerHTML+=`<br>✅ 合計 ${totalCount}件を取込みました`;
   if(event && event.target) event.target.value='';
   if(totalCount>0){
-    const latestTx = transactions
+    // 計上月（カードは請求月）が最も新しいものへジャンプする
+    const latestKey = transactions
       .filter(t=>!t.excluded&&!t.cashParentId)
-      .sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
-    if(latestTx){
-      const d = new Date(latestTx.date);
-      currentYear = d.getFullYear();
-      currentMonth = d.getMonth();
+      .map(txYMKey).sort().pop();
+    if(latestKey){
+      currentYear = parseInt(latestKey.slice(0,4),10);
+      currentMonth = parseInt(latestKey.slice(5,7),10)-1;
       updateMonthLabel();
     }
     renderAll();
@@ -1996,14 +2315,19 @@ function importCSV(event,source){
     const text=e.target.result;
     let count=0;
     try{
+      const before=transactions.length;
       if(source==='paypay') count=parsePayPay(text);
       else if(source==='yucho') count=parseYucho(text);
-      else if(source==='rakuten') count=parseRakuten(text);
-      else if(source==='smbc') count=parseSMBC(text);
+      else if(source==='rakuten') count=parseRakuten(text,file.name);
+      else if(source==='smbc') count=parseSMBC(text,file.name);
+      stampSourceFile(before,file.name);
+      const skipped=dedupeImported(before);
+      count=Math.max(0,count-skipped);
       save();renderAll();
       const log=document.getElementById('importLog');
       const names={paypay:'PayPay',yucho:'ゆうちょ',rakuten:'楽天カード',smbc:'三井住友カード'};
-      log.innerHTML=`✓ ${names[source]}: ${count}件取込完了<br>`+log.innerHTML;
+      const dupNote=skipped?`（取込済みの ${skipped}件はスキップ）`:'';
+      log.innerHTML=`✓ ${names[source]}: ${count}件取込完了${billingNote(source,text,file.name)}${dupNote}<br>`+log.innerHTML;
       // 概要タブに切り替え
       if(count>0){
         document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===0));
@@ -2104,8 +2428,10 @@ function parseYucho(text){
   }
   return count;
 }
-function parseRakuten(text){
+function parseRakuten(text,filename){
   // 列: 0=利用日, 1=利用店名, 4=利用金額
+  // 利用日は前月（例: 7月請求分のCSVは6月の利用日）なので、計上月は請求月を使う
+  const billing=resolveBillingYM('rakuten',text,filename);
   const lines=text.split(/\r?\n/).filter(l=>l.trim());
   let count=0;
   for(let i=1;i<lines.length;i++){
@@ -2115,21 +2441,27 @@ function parseRakuten(text){
     const name=c[1]||'楽天カード取引';
     const amount=parseFloat((c[4]||'').replace(/[^0-9.]/g,''))||0;
     if(!amount||!date||shouldExclude(name)) continue;
-    transactions.push({id:makeId(),date:normalizeDate(date),name,amount,type:'expense',category:detectCategory(name,'expense'),source:'楽天カード'});
+    const nd=normalizeDate(date);
+    transactions.push({id:makeId(),date:nd,ym:billing||nextMonthYM(nd),name,amount,type:'expense',category:detectCategory(name,'expense'),source:'楽天カード'});
     count++;
   }
   return count;
 }
-function parseSMBC(text){
+function parseSMBC(text,filename){
+  // 楽天と同じく、利用日ではなく請求月（支払月）に計上する
+  const billing=resolveBillingYM('smbc',text,filename);
   const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  // Vpassのcsvはヘッダー行が無いことがある。1行目が日付で始まるなら明細として扱う
+  const start=/^["']?\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(lines[0]||'')?0:1;
   let count=0;
-  for(let i=1;i<lines.length;i++){
+  for(let i=start;i<lines.length;i++){
     const c=csvSplit(lines[i]);
     if(c.length<3) continue;
     const date=c[0],name=c[1];
     const amount=Math.abs(parseFloat((c[2]||'').replace(/[^0-9.-]/g,''))||0);
     if(!amount||!date||shouldExclude(name)) continue;
-    transactions.push({id:makeId(),date:normalizeDate(date),name,amount,type:'expense',category:detectCategory(name,'expense'),source:'三井住友カード'});
+    const nd=normalizeDate(date);
+    transactions.push({id:makeId(),date:nd,ym:billing||nextMonthYM(nd),name,amount,type:'expense',category:detectCategory(name,'expense'),source:'三井住友カード'});
     count++;
   }
   return count;
@@ -2179,8 +2511,7 @@ function buildAllDataText(){
   // 月別収支
   const byMonth = {};
   agg.forEach(t=>{
-    const d = new Date(t.date);
-    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const key = txYMKey(t);
     if(!byMonth[key]) byMonth[key] = {inc:0, exp:0};
     if(t.type==='income') byMonth[key].inc += t.amount; else byMonth[key].exp += t.amount;
   });
@@ -2584,13 +2915,18 @@ async function importBulkFiles(files){
         log.innerHTML += `⚠ ${file.name}：判別できませんでした<br>`;
         continue;
       }
+      const before = transactions.length;
       let count = 0;
       if(source==='paypay') count=parsePayPay(text);
       else if(source==='yucho') count=parseYucho(text);
-      else if(source==='rakuten') count=parseRakuten(text);
-      else if(source==='smbc') count=parseSMBC(text);
+      else if(source==='rakuten') count=parseRakuten(text,file.name);
+      else if(source==='smbc') count=parseSMBC(text,file.name);
+      stampSourceFile(before,file.name);
+      const skipped=dedupeImported(before);
+      count=Math.max(0,count-skipped);
       const names={paypay:'PayPay',yucho:'ゆうちょ',rakuten:'楽天カード',smbc:'三井住友カード'};
-      log.innerHTML += `✓ ${names[source]}（${file.name}）: ${count}件<br>`;
+      const dupNote=skipped?`<span style="color:var(--text3)">（取込済みの ${skipped}件はスキップ）</span>`:'';
+      log.innerHTML += `✓ ${names[source]}（${file.name}）: ${count}件${billingNote(source,text,file.name)}${dupNote}<br>`;
       totalCount += count;
     }catch(e){
       log.innerHTML += `✗ ${file.name}：読込エラー<br>`;
@@ -2600,13 +2936,13 @@ async function importBulkFiles(files){
   log.innerHTML += `<br>✅ 合計 ${totalCount}件を取込みました`;
   if(totalCount > 0){
     // 取込んだデータの最新月を特定して自動ジャンプ
-    const latestTx = transactions
+    // 計上月（カードは請求月）が最も新しいものへジャンプする
+    const latestKey = transactions
       .filter(t=>!t.excluded&&!t.cashParentId)
-      .sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
-    if(latestTx){
-      const d = new Date(latestTx.date);
-      currentYear = d.getFullYear();
-      currentMonth = d.getMonth();
+      .map(txYMKey).sort().pop();
+    if(latestKey){
+      currentYear = parseInt(latestKey.slice(0,4),10);
+      currentMonth = parseInt(latestKey.slice(5,7),10)-1;
       updateMonthLabel();
     }
     renderAll();
@@ -2700,7 +3036,7 @@ async function loadFromSupabase(){
   try{
     const { data: txData } = await _supabase.from('transactions')
       .select('data').eq('user_id', currentUser.id).single();
-    if(txData?.data){ transactions = txData.data; save(); }
+    if(txData?.data){ transactions = txData.data; migrateCardBillingMonth(); save(); }
 
     const { data: stData } = await _supabase.from('user_settings')
       .select('data').eq('user_id', currentUser.id).single();
@@ -2775,6 +3111,8 @@ try {
   const stored = localStorage.getItem('kakeibo_tx');
   if(stored) transactions = JSON.parse(stored);
 } catch(e) { transactions = []; }
+// 取込済みのカード明細に計上月（請求月）を後付けする
+if(migrateCardBillingMonth()) save();
 
 const _savedColors = JSON.parse(localStorage.getItem('kakeibo_colors')||'{}')
 Object.assign(CAT_COLORS, _savedColors);
