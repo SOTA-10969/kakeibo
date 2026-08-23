@@ -292,10 +292,15 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
       </div>
     </div>
   </div>
-  <div class="pdf-card">
-    <h3>PDFで出力</h3>
+  <div class="pdf-card" style="margin-bottom:12px">
+    <h3>PDFで出力（自分用）</h3>
     <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.6">収支サマリー・カテゴリ別内訳・取引履歴をPDFとして出力します。</p>
     <button class="primary-btn" onclick="exportPDF()" style="width:100%">PDF出力</button>
+  </div>
+  <div class="pdf-card">
+    <h3>PDFで出力（親用）</h3>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.6">収支サマリーとカテゴリ別支出だけをPDFにします。<b>どこで何にいくら使ったかという個別の取引明細は含まれません。</b></p>
+    <button class="primary-btn" onclick="exportPDFParent()" style="width:100%">親用PDFを出力</button>
   </div>
 </div>
 
@@ -357,7 +362,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 </div>
 
 <button class="fab" onclick="openModal()">+</button>
-<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v10</div>
+<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v11</div>
 
 <!-- 手動追加モーダル -->
 <div class="modal-bg" id="modalBg" onclick="closeModalBg(event)">
@@ -2677,22 +2682,67 @@ async function nativeShare(){
 }
 
 // ==================== PDF出力 ====================
-function exportPDF(){
+// mode='full'   … 収支サマリー＋カテゴリ別支出＋取引履歴（自分用）
+// mode='parent' … 収支サマリー＋カテゴリ別支出のみ（親に見せる用。個別の明細は出さない）
+function buildReportHTML(mode){
+  const isParent = mode==='parent';
   const txs=getMonthTx(currentYear,currentMonth);
+  // 画面の「概要」タブと同じ集計にする（支出は回収ぶんを引いた実質額）
   const income=txs.filter(t=>t.type==='income').reduce((a,t)=>a+t.amount,0);
-  const expense=txs.filter(t=>t.type==='expense').reduce((a,t)=>a+t.amount,0);
+  const expense=txs.filter(t=>t.type==='expense').reduce((a,t)=>a+getEffectiveAmount(t),0);
   const balance=income-expense;
+
   const bycat={};
-  txs.filter(t=>t.type==='expense').forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+t.amount;});
-  const catRows=Object.entries(bycat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${k}</td><td style="text-align:right">¥${Math.round(v).toLocaleString()}</td><td style="text-align:right">${expense>0?(v/expense*100).toFixed(1):'0'}%</td></tr>`).join('');
-  const txRows=txs.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx=>{
+  txs.filter(t=>t.type==='expense').forEach(t=>{
+    const amt=getEffectiveAmount(t);
+    if(amt>0) bycat[t.category]=(bycat[t.category]||0)+amt;
+  });
+  const cats=Object.entries(bycat).sort((a,b)=>b[1]-a[1]);
+  const maxCat=cats.length?cats[0][1]:0;
+  const catRows=cats.map(([k,v])=>{
+    const pct=expense>0?(v/expense*100):0;
+    const col=CAT_COLORS[k]||'#888780';
+    const bar=`<div class="bar"><span style="width:${maxCat>0?(v/maxCat*100).toFixed(1):0}%;background:${col}"></span></div>`;
+    return `<tr><td><span class="dot" style="background:${col}"></span>${escHtml(k)}</td>
+      <td class="r">¥${Math.round(v).toLocaleString()}</td>
+      <td class="r">${pct.toFixed(1)}%</td>
+      <td class="bc">${bar}</td></tr>`;
+  }).join('');
+
+  const txRows=isParent?'':[...txs].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx=>{
     const d=new Date(tx.date);
     const sign=tx.type==='income'?'+':'-';
     const col=tx.type==='income'?'#1D9E75':'#D85A30';
-    return `<tr><td>${(d.getMonth()+1)+'/'+(d.getDate())}</td><td>${tx.name}</td><td>${tx.category}</td><td>${tx.source||''}</td><td style="text-align:right;color:${col}">${sign}¥${Math.round(tx.amount).toLocaleString()}</td></tr>`;
+    const amt=tx.type==='expense'?getEffectiveAmount(tx):tx.amount;
+    return `<tr><td>${(d.getMonth()+1)+'/'+(d.getDate())}</td><td>${escHtml(tx.name)}</td><td>${escHtml(tx.category)}</td><td>${escHtml(tx.source||'')}</td><td class="r" style="color:${col}">${sign}¥${Math.round(amt).toLocaleString()}</td></tr>`;
   }).join('');
-  const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${currentYear}年${currentMonth+1}月 家計レポート</title><style>body{font-family:'Hiragino Kaku Gothic Pro',sans-serif;padding:32px;color:#222;font-size:13px}h1{font-size:20px;margin-bottom:4px}h2{font-size:14px;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid #ddd}table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#f5f5f5;padding:6px 8px;text-align:left;font-size:11px;border:1px solid #ddd}td{padding:5px 8px;border:1px solid #eee;font-size:12px}.s{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0}.sc{background:#f9f9f9;border-radius:6px;padding:10px}.sl{font-size:10px;color:#666}.sv{font-size:17px;font-weight:600}</style></head><body>
-<h1>${currentYear}年${currentMonth+1}月 家計レポート</h1>
+
+  const title=`${currentYear}年${currentMonth+1}月 家計レポート${isParent?'（サマリー）':''}`;
+  const historySection=isParent?'':`<h2>取引履歴</h2>
+<table><thead><tr><th>日付</th><th>内容</th><th>カテゴリ</th><th>支払方法</th><th class="r">金額</th></tr></thead><tbody>${txRows||'<tr><td colspan="5" class="nd">データなし</td></tr>'}</tbody></table>`;
+  const footer=isParent?`<p class="note">※ このレポートは月ごとの合計とカテゴリ別の内訳をまとめたものです。個別の取引明細は含まれません。</p>`:'';
+
+  return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${title}</title><style>
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:'Hiragino Kaku Gothic Pro','Yu Gothic',sans-serif;padding:32px;color:#222;font-size:13px}
+h1{font-size:20px;margin-bottom:4px}
+h2{font-size:14px;margin:24px 0 8px;padding-bottom:4px;border-bottom:1px solid #ddd}
+table{width:100%;border-collapse:collapse;margin-bottom:16px}
+th{background:#f5f5f5;padding:6px 8px;text-align:left;font-size:11px;border:1px solid #ddd}
+td{padding:6px 8px;border:1px solid #eee;font-size:12px}
+.r{text-align:right}
+.nd{text-align:center;color:#888}
+.s{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0}
+.sc{background:#f9f9f9;border-radius:6px;padding:12px}
+.sl{font-size:10px;color:#666}
+.sv{font-size:${isParent?'20':'17'}px;font-weight:600;margin-top:2px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.bc{width:34%;padding:6px 8px}
+.bar{background:#f0f0f0;border-radius:3px;height:8px;overflow:hidden}
+.bar span{display:block;height:100%;border-radius:3px}
+.note{margin-top:20px;padding-top:10px;border-top:1px solid #eee;color:#888;font-size:11px;line-height:1.7}
+</style></head><body>
+<h1>${title}</h1>
 <p style="color:#888;font-size:11px">出力: ${new Date().toLocaleDateString('ja-JP')}</p>
 <h2>収支サマリー</h2>
 <div class="s">
@@ -2701,15 +2751,21 @@ function exportPDF(){
 <div class="sc"><div class="sl">収支</div><div class="sv" style="color:${balance>=0?'#1D9E75':'#D85A30'}">${balance>=0?'+':'-'}¥${Math.round(Math.abs(balance)).toLocaleString()}</div></div>
 </div>
 <h2>カテゴリ別支出</h2>
-<table><thead><tr><th>カテゴリ</th><th style="text-align:right">金額</th><th style="text-align:right">割合</th></tr></thead><tbody>${catRows||'<tr><td colspan="3" style="text-align:center;color:#888">データなし</td></tr>'}</tbody></table>
-<h2>取引履歴</h2>
-<table><thead><tr><th>日付</th><th>内容</th><th>カテゴリ</th><th>支払方法</th><th style="text-align:right">金額</th></tr></thead><tbody>${txRows||'<tr><td colspan="5" style="text-align:center;color:#888">データなし</td></tr>'}</tbody></table>
+<table><thead><tr><th>カテゴリ</th><th class="r">金額</th><th class="r">割合</th><th></th></tr></thead><tbody>${catRows||'<tr><td colspan="4" class="nd">データなし</td></tr>'}</tbody></table>
+${historySection}${footer}
 </body></html>`;
+}
+
+function openPrintWindow(html){
   const w=window.open('','_blank');
+  if(!w){ showToast('ポップアップがブロックされました。許可してください'); return; }
   w.document.write(html);
   w.document.close();
   w.onload=()=>w.print();
 }
+
+function exportPDF(){ openPrintWindow(buildReportHTML('full')); }
+function exportPDFParent(){ openPrintWindow(buildReportHTML('parent')); }
 
 
 // ==================== カラー・ルール設定 ====================
