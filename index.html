@@ -487,7 +487,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 <div id="tab9" class="section"><div id="simRoot"></div></div>
 
 <button class="fab" onclick="openModal()">+</button>
-<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v11</div>
+<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v12</div>
 
 <!-- 手動追加モーダル -->
 <div class="modal-bg" id="modalBg" onclick="closeModalBg(event)">
@@ -3453,11 +3453,16 @@ if('serviceWorker' in navigator && location.protocol !== 'file:'){
     return t;
   }
   function actualMonthTotals(y, m) {
-    var key = y + '-' + pad(m + 1), t = { in: 0, out: 0 };
-    txAll().forEach(function (x) {
-      if (String(x.date || '').slice(0, 7) !== key) return;
-      if (x.type === 'income') t.in += num(x.amount); else t.out += num(x.amount);
-    });
+    var t = { in: 0, out: 0 };
+    // 家計簿本体（概要タブ）と同じ集計にそろえる。
+    // getMonthTx は計上月（カードは請求月）で振り分け、集計除外・現金の子取引・
+    // 回収済みの立替を除いてくれる。取引日で数えると本体と金額が食い違う。
+    try {
+      getMonthTx(y, m).forEach(function (x) {
+        if (x.type === 'income') t.in += num(x.amount);
+        else t.out += num(getEffectiveAmount(x));
+      });
+    } catch (e) { /* transactions 初期化前 */ }
     return t;
   }
   function goalOf(key) { return P.goals[key] !== undefined ? P.goals[key] : 100000; }
