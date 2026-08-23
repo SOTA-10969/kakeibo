@@ -166,6 +166,8 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
   <div class="tab" onclick="switchTab(5,this)">PDF出力</div>
   <div class="tab" onclick="switchTab(6,this)">カテゴリ</div>
   <div class="tab" onclick="switchTab(7,this)">設定</div>
+  <div class="tab" onclick="switchTab(8,this)">予定</div>
+  <div class="tab" onclick="switchTab(9,this)">将来</div>
 </div>
 
 <!-- 概要 -->
@@ -360,6 +362,129 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
     <button onclick="clearAll()" style="width:100%;padding:9px;border-radius:var(--radius);font-size:13px;cursor:pointer;background:none;border:0.5px solid var(--border);color:var(--red)">全データ削除</button>
   </div>
 </div>
+
+<style>
+/* ===== 予定・将来タブ（統合分） ===== */
+.pl-nav{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.pl-nav .ttl{font-size:15px;font-weight:600;flex:0 0 auto}
+.pl-nav .sp{flex:1}
+.pl-btn{border:0.5px solid var(--border);background:var(--bg);color:var(--text2);border-radius:8px;
+  font-size:12px;padding:5px 10px;cursor:pointer;font-family:inherit;line-height:1.4}
+.pl-btn:hover{border-color:var(--blue);color:var(--blue)}
+.pl-btn.w{width:30px;padding:5px 0}
+.pl-seg{display:flex;border:0.5px solid var(--border);border-radius:8px;overflow:hidden}
+.pl-seg button{border:0;background:transparent;color:var(--text2);font-size:12px;padding:5px 11px;cursor:pointer;font-family:inherit}
+.pl-seg button+button{border-left:0.5px solid var(--border)}
+.pl-seg button[aria-pressed="true"]{background:var(--blue);color:#fff;font-weight:600}
+
+.pl-card{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:12px}
+.pl-card h3{font-size:13px;font-weight:600;margin-bottom:8px}
+.pl-goal{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pl-goal .lb{font-size:11px;color:var(--text2)}
+.pl-num{border:0;background:transparent;color:var(--text);font-size:17px;font-weight:700;
+  border-bottom:0.5px solid var(--border);width:104px;text-align:right;padding:1px 0;
+  font-variant-numeric:tabular-nums;-moz-appearance:textfield;font-family:inherit}
+.pl-num::-webkit-outer-spin-button,.pl-num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.pl-num:focus{outline:none;border-bottom-color:var(--blue)}
+.pl-meter{height:6px;background:var(--bg3);border-radius:3px;margin-top:8px;position:relative;overflow:hidden}
+.pl-meter i{position:absolute;left:0;top:0;bottom:0;background:var(--blue)}
+.pl-meter i.plan{opacity:.3}
+
+.pl-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);
+  border:0.5px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:12px}
+.pl-grid4>div{background:var(--bg);padding:9px 10px}
+.pl-grid4 span{display:block;font-size:10px;color:var(--text2);letter-spacing:.04em}
+.pl-grid4 b{font-size:15px;font-variant-numeric:tabular-nums}
+.pl-grid4 em{font-style:normal;display:block;font-size:10px;color:var(--text3)}
+@media(max-width:520px){.pl-grid4{grid-template-columns:1fr 1fr}}
+
+.pl-scroll{overflow-x:auto;border:0.5px solid var(--border);border-radius:var(--radius);background:var(--border)}
+.pl-dow,.pl-days,.pl-week{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;min-width:560px}
+.pl-dow span{background:var(--bg2);font-size:10px;color:var(--text2);text-align:center;padding:4px 0}
+.pl-dow span.d0{color:var(--red)}.pl-dow span.d6{color:var(--blue)}
+.pl-cell{background:var(--bg);min-height:82px;padding:3px 4px;cursor:pointer}
+.pl-week .pl-cell{min-height:160px}
+.pl-cell.pad{background:var(--bg2)}
+.pl-cell.sel{box-shadow:inset 0 0 0 2px var(--blue)}
+.pl-cell .dn{font-size:11px;color:var(--text2);font-variant-numeric:tabular-nums}
+.pl-cell.today .dn{background:var(--blue);color:#fff;border-radius:9px;padding:0 5px}
+.pl-chip{display:block;font-size:10px;line-height:1.5;margin-top:2px;padding:0 3px 0 5px;border-radius:3px;
+  border-left:3px solid var(--text3);background:var(--bg2);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;font-variant-numeric:tabular-nums;cursor:pointer}
+.pl-chip.plan{border-left-style:dashed;opacity:.85}
+.pl-chip.done{opacity:.45;text-decoration:line-through}
+.pl-more{font-size:10px;color:var(--text3);margin-top:1px}
+.pl-legend{display:flex;gap:12px;font-size:11px;color:var(--text2);margin-top:8px;flex-wrap:wrap}
+.pl-legend i{display:inline-block;width:14px;border-top:3px solid var(--text3);vertical-align:middle;margin-right:4px}
+.pl-legend i.dash{border-top-style:dashed}
+
+.pl-yr{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.pl-mcard{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius);padding:9px 10px;cursor:pointer}
+.pl-mcard:hover{border-color:var(--blue)}
+.pl-mcard h4{font-size:12px;font-weight:600;margin-bottom:3px}
+.pl-mrow{display:flex;justify-content:space-between;font-size:11px;color:var(--text2);font-variant-numeric:tabular-nums}
+
+.pl-row{display:flex;align-items:center;gap:5px;padding:5px 8px;border-bottom:0.5px solid var(--border);flex-wrap:wrap}
+.pl-row:last-child{border-bottom:0}
+.pl-list{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.pl-row input,.pl-row select{border:0;background:transparent;color:var(--text);font-size:12px;font-family:inherit;
+  border-bottom:0.5px solid var(--border);padding:2px 1px;text-align:right;
+  font-variant-numeric:tabular-nums;-moz-appearance:textfield;min-width:0}
+.pl-row input::-webkit-outer-spin-button,.pl-row input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.pl-row input:focus,.pl-row select:focus{outline:none;border-bottom-color:var(--blue)}
+.pl-row input.nm{flex:1;min-width:78px;text-align:left;border-bottom-color:transparent}
+.pl-row input.nm:hover{border-bottom-color:var(--border)}
+.pl-row select{text-align:left;width:64px;flex:0 0 auto;cursor:pointer}
+.pl-row select.g{width:88px}
+.pl-row input.am{width:74px;flex:0 0 auto}
+.pl-row input.dy{width:32px;flex:0 0 auto}
+.pl-row input.ym{width:70px;flex:0 0 auto;font-size:11px}
+.pl-row .u{font-size:10px;color:var(--text3);flex:0 0 auto}
+.pl-row>label{flex:1;font-size:12px;color:var(--text2);min-width:104px}
+.pl-x{border:0;background:transparent;color:var(--text3);cursor:pointer;font-size:14px;line-height:1;padding:2px 5px;border-radius:4px;flex:0 0 auto}
+.pl-x:hover{color:var(--red);background:var(--bg3)}
+.pl-foot{padding:6px 8px;border-top:0.5px solid var(--border);display:flex;gap:6px;flex-wrap:wrap}
+
+.pl-subtabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
+.pl-subtabs button{border:0.5px solid var(--border);background:var(--bg);color:var(--text2);border-radius:8px;
+  font-size:12px;padding:4px 10px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:5px}
+.pl-subtabs button i{width:8px;height:8px;border-radius:2px;flex:0 0 auto;background:var(--text3)}
+.pl-subtabs button[aria-pressed="true"]{border-color:var(--blue);color:var(--blue);font-weight:600}
+.pl-subtabs button.plus{border-style:dashed;color:var(--blue)}
+.pl-sw{display:flex;gap:4px;align-items:center}
+.pl-sw button{width:19px;height:19px;border:0.5px solid var(--border);border-radius:4px;cursor:pointer;padding:0}
+.pl-sw button[aria-pressed="true"]{box-shadow:0 0 0 2px var(--bg),0 0 0 3px var(--text2)}
+.pl-sw input[type=color]{width:26px;height:22px;padding:0;border:0.5px solid var(--border);background:transparent;cursor:pointer}
+
+.pl-sum{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:10px}
+.pl-sum .h{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:0.5px solid var(--border);flex-wrap:wrap}
+.pl-sum .h .lb{font-size:11px;color:var(--text2)}
+.pl-sum .h input[type=month]{border:0;background:transparent;color:var(--text);font-size:12px;font-family:inherit;
+  border-bottom:0.5px solid var(--border);padding:2px}
+.pl-sum .h .sp{flex:1}
+.pl-sr{display:flex;align-items:center;gap:7px;padding:5px 10px;border-bottom:0.5px solid var(--border);font-size:12px;cursor:pointer}
+.pl-sr:last-child{border-bottom:0}
+.pl-sr i{width:8px;height:8px;border-radius:2px;flex:0 0 auto}
+.pl-sr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl-sr .am{font-weight:600;font-variant-numeric:tabular-nums;flex:0 0 auto}
+.pl-sr.tot{background:var(--bg2);font-weight:600;cursor:default}
+
+.pl-tbl{width:100%;border-collapse:collapse;font-size:11px;min-width:480px}
+.pl-tbl th,.pl-tbl td{padding:5px 7px;border-bottom:0.5px solid var(--border);text-align:right;white-space:nowrap}
+.pl-tbl th:first-child,.pl-tbl td:first-child{text-align:left}
+.pl-tbl thead th{font-size:10px;color:var(--text2);background:var(--bg2);font-weight:400;position:sticky;top:0}
+.pl-tbl tbody td{font-variant-numeric:tabular-nums;color:var(--text2)}
+.pl-tbl tbody td:first-child{color:var(--text);font-weight:600}
+.pl-tblwrap{overflow:auto;max-height:340px;border:0.5px solid var(--border);border-radius:var(--radius);background:var(--bg)}
+.pl-pos{color:var(--green)}.pl-neg{color:var(--red)}
+.pl-hint{font-size:11px;color:var(--text3);margin-top:6px;line-height:1.6}
+</style>
+
+<!-- 予定 -->
+<div id="tab8" class="section"><div id="planRoot"></div></div>
+
+<!-- 将来 -->
+<div id="tab9" class="section"><div id="simRoot"></div></div>
 
 <button class="fab" onclick="openModal()">+</button>
 <div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v11</div>
@@ -777,6 +902,8 @@ function switchTab(i,el){
   if(i===3) renderBudgetTab();
   if(i===6) renderCategoryManager();
   if(i===7) initSettingsTab();
+  if(i===8) planRender();
+  if(i===9) simRender();
 }
 
 // ==================== 描画 ====================
@@ -3076,6 +3203,7 @@ async function syncToSupabase(){
       custom_cats: JSON.parse(localStorage.getItem('kakeibo_custom_cats')||'[]'),
       hidden_cats: JSON.parse(localStorage.getItem('kakeibo_hidden_cats')||'[]'),
       current_month: JSON.parse(localStorage.getItem('kakeibo_current_month')||'null'),
+      plan: JSON.parse(localStorage.getItem('kakeibo_plan')||'null'),
     };
     await _supabase.from('user_settings').upsert({
       user_id: currentUser.id, data: settings, updated_at: new Date().toISOString()
@@ -3103,6 +3231,7 @@ async function loadFromSupabase(){
       if(s.rules) localStorage.setItem('kakeibo_rules', JSON.stringify(s.rules));
       if(s.custom_cats) localStorage.setItem('kakeibo_custom_cats', JSON.stringify(s.custom_cats));
       if(s.hidden_cats) localStorage.setItem('kakeibo_hidden_cats', JSON.stringify(s.hidden_cats));
+      if(s.plan){ localStorage.setItem('kakeibo_plan', JSON.stringify(s.plan)); if(window.planReload) window.planReload(); }
       if(s.current_month){
         localStorage.setItem('kakeibo_current_month', JSON.stringify(s.current_month));
         currentYear = s.current_month.year;
@@ -3181,5 +3310,740 @@ if('serviceWorker' in navigator && location.protocol !== 'file:'){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 </script>
+
+<script>
+/* ==================== 予定 / 将来（統合分） ====================
+   家計簿本体は「実績」を持つ。ここは「予定」と「将来」を担当し、
+   同じ user_settings.data.plan に保存される（テーブル追加なし）。
+   実績は既存のグローバル transactions をそのまま読む。
+   ============================================================== */
+(function () {
+  'use strict';
+
+  var PKEY = 'kakeibo_plan';
+  var KINDS = [['in', '収入'], ['out', '支出'], ['debt', '返済'], ['inv', '積立']];
+  var PRESETS = ['#378ADD', '#D85A30', '#1D9E75', '#E0A020', '#8E5AD8', '#607D8B', '#C2185B', '#2AA198'];
+  var DOW = ['日', '月', '火', '水', '木', '金', '土'];
+
+  var DEF = {
+    base: { age: 22, end: 40, cash: 100000, raise: 3, infl: 2, yield: 3 },
+    groups: [
+      { id: 'g1', n: '収入', c: '#378ADD' },
+      { id: 'g2', n: '住まい', c: '#D85A30' },
+      { id: 'g3', n: '生活', c: '#E0A020' },
+      { id: 'g4', n: 'バイク', c: '#8E5AD8' },
+      { id: 'g5', n: '奨学金', c: '#607D8B' },
+      { id: 'g6', n: '貯金・投資', c: '#1D9E75' }
+    ],
+    items: [
+      { g: 'g1', n: 'Novan 業務委託', k: 'in', a: 30000, d: 31, f: '2026-07', t: '2027-03' },
+      { g: 'g1', n: 'goenz 講師料', k: 'in', a: 10000, d: 10, f: '2026-07', t: '2027-03' },
+      { g: 'g1', n: '仕送り', k: 'in', a: 60000, d: 1, f: '2026-07', t: '2027-03' },
+      { g: 'g1', n: '給与（手取り）', k: 'in', a: 249000, d: 25, f: '2027-04', t: '2044-03' },
+      { g: 'g2', n: '家賃（東京）', k: 'out', a: 90000, d: 27, f: '2027-04', t: '2044-03' },
+      { g: 'g2', n: '光熱・通信', k: 'out', a: 12000, d: 5, f: '2026-07', t: '2044-03' },
+      { g: 'g3', n: '食費', k: 'out', a: 25000, d: 1, f: '2026-07', t: '2044-03' },
+      { g: 'g4', n: 'バイクローン（オリコ）', k: 'debt', a: 11300, d: 27, f: '2026-09', t: '2030-07' },
+      { g: 'g4', n: 'バイク維持費', k: 'out', a: 14900, d: 1, f: '2026-08', t: '2044-03' },
+      { g: 'g5', n: '奨学金の返済', k: 'debt', a: 0, d: 27, f: '2027-04', t: '2042-03' },
+      { g: 'g6', n: '積立', k: 'inv', a: 20000, d: 25, f: '2027-04', t: '2044-03' }
+    ],
+    oneoffs: [
+      { g: 'g4', n: 'バイクローン 初回', k: 'debt', a: 14659, date: '2026-08-27' }
+    ],
+    goals: {}, done: {}
+  };
+
+  var P, mode = 'month', simUnit = 'year', setTab = 'base', sumUnit = 'month', refMonth = '';
+  var cur = new Date(); cur.setHours(0, 0, 0, 0);
+  var START = new Date(cur.getFullYear(), cur.getMonth(), 1);
+  var sel, TODAY, seq = 100, chart = null;
+  var monthly = [], yearly = [], rows = [], sim = {};
+
+  /* ---------- helpers ---------- */
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function ym(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
+  function dim(y, m) { return new Date(y, m + 1, 0).getDate(); }
+  function yen(n) { return Math.round(n).toLocaleString('ja-JP'); }
+  function shortY(n) { var a = Math.abs(n); return a >= 10000 ? (Math.round(n / 1000) / 10) + '万' : yen(n); }
+  function man(n) {
+    var a = Math.abs(n);
+    if (a >= 100000000) return (n / 100000000).toFixed(1) + '億';
+    if (a >= 10000) return Math.round(n / 10000) + '万';
+    return String(Math.round(n));
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function kname(k) { for (var i = 0; i < KINDS.length; i++) if (KINDS[i][0] === k) return KINDS[i][1]; return k; }
+  function grp(id) {
+    for (var i = 0; i < P.groups.length; i++) if (P.groups[i].id === id) return P.groups[i];
+    return P.groups[0] || { id: '', n: '未分類', c: '#999' };
+  }
+  function newId() { return 'g' + (seq++); }
+  function mIndex(key) { var p = String(key).split('-'); return (+p[0]) * 12 + (+p[1] - 1); }
+  function num(v, d) { var n = parseFloat(v); return isFinite(n) ? n : (d || 0); }
+
+  sel = ymd(cur); TODAY = ymd(new Date());
+
+  function loadPlan() {
+    var raw = null;
+    try { raw = JSON.parse(localStorage.getItem(PKEY) || 'null'); } catch (e) { raw = null; }
+    if (raw && raw.items) {
+      P = raw;
+      P.base = Object.assign(clone(DEF.base), P.base || {});
+      P.groups = (P.groups && P.groups.length) ? P.groups : clone(DEF.groups);
+      P.oneoffs = P.oneoffs || [];
+      P.goals = P.goals || {}; P.done = P.done || {};
+    } else {
+      P = clone(DEF);
+    }
+    P.groups.forEach(function (g) { var m = /^g(\d+)$/.exec(g.id); if (m && +m[1] >= seq) seq = +m[1] + 1; });
+    refMonth = refMonth || ym(cur);
+  }
+  function savePlan() {
+    try { localStorage.setItem(PKEY, JSON.stringify(P)); } catch (e) {}
+    // 家計簿本体の save() を呼ぶと 500ms 後に Supabase へ同期される
+    if (typeof window.save === 'function') { try { window.save(); } catch (e) {} }
+  }
+
+  /* ---------- 予定のイベント ---------- */
+  function planEventsOn(ds) {
+    var p = ds.split('-'), y = +p[0], m = +p[1], d = +p[2];
+    var key = p[0] + '-' + p[1], last = dim(y, m - 1), out = [];
+    P.items.forEach(function (it, idx) {
+      if (!it.a) return;
+      if (it.f && key < it.f) return;
+      if (it.t && key > it.t) return;
+      if (Math.min(it.d || 1, last) !== d) return;
+      var g = grp(it.g);
+      out.push({ key: 'r' + idx + '@' + ds, n: it.n, k: it.k, a: it.a, c: g.c, gn: g.n, ref: null });
+    });
+    P.oneoffs.forEach(function (o, i) {
+      if (o.date === ds && o.a) {
+        var g = grp(o.g);
+        out.push({ key: 'o' + i + '@' + ds, n: o.n, k: o.k, a: o.a, c: g.c, gn: g.n, ref: i });
+      }
+    });
+    return out;
+  }
+  /* ---------- 実績（家計簿本体のデータ） ---------- */
+  // 家計簿本体の transactions は let 宣言なので window のプロパティではない。
+  // 初期化前に触ると例外になるため try で包む。
+  function txAll() {
+    try { return Array.isArray(transactions) ? transactions : []; } catch (e) { return []; }
+  }
+  function actualOn(ds) {
+    return txAll().filter(function (t) { return t.date === ds; }).map(function (t) {
+      return { n: t.name || '(名称なし)', k: t.type === 'income' ? 'in' : 'out', a: num(t.amount),
+               cat: t.category || '', src: t.source || '' };
+    });
+  }
+  function planMonthTotals(y, m) {
+    var t = { in: 0, out: 0, debt: 0, inv: 0, realIn: 0 }, last = dim(y, m);
+    for (var d = 1; d <= last; d++) {
+      planEventsOn(y + '-' + pad(m + 1) + '-' + pad(d)).forEach(function (e) {
+        t[e.k] += e.a;
+        if (e.k === 'in' && P.done[e.key]) t.realIn += e.a;
+      });
+    }
+    return t;
+  }
+  function actualMonthTotals(y, m) {
+    var key = y + '-' + pad(m + 1), t = { in: 0, out: 0 };
+    txAll().forEach(function (x) {
+      if (String(x.date || '').slice(0, 7) !== key) return;
+      if (x.type === 'income') t.in += num(x.amount); else t.out += num(x.amount);
+    });
+    return t;
+  }
+  function goalOf(key) { return P.goals[key] !== undefined ? P.goals[key] : 100000; }
+  function weekStart() { var d = new Date(cur); d.setDate(d.getDate() - d.getDay()); return d; }
+
+  /* ==================== 予定タブ ==================== */
+  function renderPlan() {
+    if (!P) loadPlan();
+    var y = cur.getFullYear(), m = cur.getMonth(), mkey = ym(cur);
+    var pt = planMonthTotals(y, m), at = actualMonthTotals(y, m), goal = goalOf(mkey);
+    var title = mode === 'year' ? y + '年'
+      : mode === 'week' ? (function () {
+          var ws = weekStart(), we = new Date(ws); we.setDate(we.getDate() + 6);
+          return (ws.getMonth() + 1) + '/' + ws.getDate() + ' 〜 ' + (we.getMonth() + 1) + '/' + we.getDate();
+        })()
+      : y + '年 ' + (m + 1) + '月';
+
+    var h = '';
+    h += '<div class="pl-nav">'
+      + '<button type="button" class="pl-btn w" data-nav="-1" aria-label="前へ">‹</button>'
+      + '<button type="button" class="pl-btn w" data-nav="1" aria-label="次へ">›</button>'
+      + '<button type="button" class="pl-btn" data-nav="0">今日</button>'
+      + '<span class="ttl">' + title + '</span><span class="sp"></span>'
+      + '<div class="pl-seg">'
+      + ['week', 'month', 'year'].map(function (v, i) {
+          return '<button type="button" data-mode="' + v + '" aria-pressed="' + (mode === v) + '">' + ['週', '月', '年'][i] + '</button>';
+        }).join('')
+      + '</div></div>';
+
+    // 目標
+    var planPct = goal > 0 ? Math.min(100, pt.in / goal * 100) : 0;
+    var realPct = goal > 0 ? Math.min(100, at.in / goal * 100) : 0;
+    h += '<div class="pl-card"><div class="pl-goal">'
+      + '<span class="lb">' + (m + 1) + '月の稼ぐ目標</span>'
+      + '<input type="number" class="pl-num" id="plGoal" step="10000" value="' + goal + '"><span class="lb">円</span>'
+      + '<span class="sp" style="flex:1"></span>'
+      + '<span class="lb" style="font-variant-numeric:tabular-nums">実績 <b class="pl-pos">' + yen(at.in) + '</b>'
+      + ' ／ 予定 ' + yen(pt.in) + ' 円'
+      + (goal > 0 ? '　達成 ' + Math.round(at.in / goal * 100) + '%' : '') + '</span>'
+      + '</div><div class="pl-meter"><i class="plan" style="width:' + planPct + '%"></i>'
+      + '<i style="width:' + realPct + '%"></i></div>'
+      + '<div class="pl-hint">薄い帯＝予定、濃い帯＝実際に入った額（家計簿の記録から自動集計）</div></div>';
+
+    // 予定 vs 実績
+    var dIn = at.in - pt.in, planOut = pt.out + pt.debt + pt.inv, dOut = at.out - planOut;
+    h += '<div class="pl-grid4">'
+      + cell('予定の収入', yen(pt.in), '')
+      + cell('実績の収入', yen(at.in), (dIn >= 0 ? '予定より +' : '予定より −') + yen(Math.abs(dIn)), dIn >= 0 ? 'pl-pos' : 'pl-neg')
+      + cell('予定の支出', yen(planOut), '返済・積立を含む')
+      + cell('実績の支出', yen(at.out), (dOut > 0 ? '予定より +' : '予定より −') + yen(Math.abs(dOut)), dOut > 0 ? 'pl-neg' : 'pl-pos')
+      + '</div>';
+
+    // 本体
+    if (mode === 'year') h += yearHTML(y);
+    else h += '<div class="pl-scroll">' + dowHTML() + '<div class="' + (mode === 'week' ? 'pl-week' : 'pl-days') + '">'
+      + (mode === 'week' ? weekCells() : monthCells(y, m)) + '</div></div>'
+      + '<div class="pl-legend"><span><i class="dash"></i>予定</span><span><i></i>実績（家計簿の記録）</span></div>';
+
+    h += '<div id="plDay"></div>';
+    h += '<div class="pl-card" style="margin-top:14px"><h3>項目設定</h3><div id="plSet"></div></div>';
+
+    var root = document.getElementById('planRoot');
+    root.innerHTML = h;
+
+    root.querySelectorAll('[data-nav]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var d = +b.dataset.nav;
+        if (d === 0) { cur = new Date(); cur.setHours(0, 0, 0, 0); sel = ymd(cur); }
+        else if (mode === 'month') cur = new Date(cur.getFullYear(), cur.getMonth() + d, 1);
+        else if (mode === 'week') { var t = new Date(cur); t.setDate(t.getDate() + 7 * d); cur = t; }
+        else cur = new Date(cur.getFullYear() + d, cur.getMonth(), 1);
+        renderPlan();
+      });
+    });
+    root.querySelectorAll('[data-mode]').forEach(function (b) {
+      b.addEventListener('click', function () { mode = b.dataset.mode; renderPlan(); });
+    });
+    document.getElementById('plGoal').addEventListener('input', function () {
+      P.goals[ym(cur)] = num(this.value); savePlan();
+      var g = num(this.value);
+      root.querySelector('.pl-meter .plan').style.width = (g > 0 ? Math.min(100, pt.in / g * 100) : 0) + '%';
+      root.querySelector('.pl-meter i:not(.plan)').style.width = (g > 0 ? Math.min(100, at.in / g * 100) : 0) + '%';
+    });
+    root.querySelectorAll('.pl-cell').forEach(function (c) {
+      c.addEventListener('click', function () { sel = c.dataset.d; renderPlan(); });
+    });
+    root.querySelectorAll('.pl-chip[data-ek]').forEach(function (ch) {
+      ch.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var k = ch.dataset.ek;
+        if (P.done[k]) delete P.done[k]; else P.done[k] = true;
+        sel = ch.dataset.d; savePlan(); renderPlan();
+      });
+    });
+    root.querySelectorAll('.pl-mcard').forEach(function (c) {
+      c.addEventListener('click', function () {
+        cur = new Date(cur.getFullYear(), +c.dataset.m, 1); mode = 'month'; renderPlan();
+      });
+    });
+
+    renderDay();
+    renderSettings();
+  }
+
+  function cell(k, v, note, cls) {
+    return '<div><span>' + k + '</span><b' + (cls ? ' class="' + cls + '"' : '') + '>' + v + '</b>'
+      + (note ? '<em>' + note + '</em>' : '') + '</div>';
+  }
+  function dowHTML() {
+    return '<div class="pl-dow">' + DOW.map(function (d, i) { return '<span class="d' + i + '">' + d + '</span>'; }).join('') + '</div>';
+  }
+  function cellHTML(d, inMonth) {
+    var ds = ymd(d);
+    var acts = actualOn(ds), plans = planEventsOn(ds);
+    var chips = '';
+    var shown = 0, cap = mode === 'week' ? 6 : 3;
+    acts.forEach(function (e) {
+      if (shown >= cap) return; shown++;
+      chips += '<span class="pl-chip" style="border-left-color:' + (e.k === 'in' ? 'var(--green)' : 'var(--red)') + '">'
+        + esc(e.n) + ' ' + (e.k === 'in' ? '+' : '−') + shortY(e.a) + '</span>';
+    });
+    plans.forEach(function (e) {
+      if (shown >= cap) return; shown++;
+      chips += '<span class="pl-chip plan' + (P.done[e.key] ? ' done' : '') + '" style="border-left-color:' + e.c
+        + '" data-ek="' + e.key + '" data-d="' + ds + '">' + esc(e.n) + ' ' + (e.k === 'in' ? '+' : '−') + shortY(e.a) + '</span>';
+    });
+    var rest = acts.length + plans.length - shown;
+    var more = rest > 0 ? '<div class="pl-more">+' + rest + '</div>' : '';
+    var cls = 'pl-cell' + (inMonth ? '' : ' pad') + (ds === TODAY ? ' today' : '') + (ds === sel ? ' sel' : '');
+    return '<div class="' + cls + '" data-d="' + ds + '"><span class="dn">' + d.getDate() + '</span>' + chips + more + '</div>';
+  }
+  function monthCells(y, m) {
+    var off = new Date(y, m, 1).getDay(), last = dim(y, m);
+    var total = Math.ceil((off + last) / 7) * 7, out = '';
+    for (var i = 0; i < total; i++) {
+      var d = new Date(y, m, 1 - off + i);
+      out += cellHTML(d, d.getMonth() === m);
+    }
+    return out;
+  }
+  function weekCells() {
+    var ws = weekStart(), out = '';
+    for (var i = 0; i < 7; i++) { var d = new Date(ws); d.setDate(ws.getDate() + i); out += cellHTML(d, true); }
+    return out;
+  }
+  function yearHTML(y) {
+    var out = '';
+    for (var m = 0; m < 12; m++) {
+      var pt = planMonthTotals(y, m), at = actualMonthTotals(y, m), goal = goalOf(y + '-' + pad(m + 1));
+      var bal = at.in - at.out;
+      var has = at.in || at.out;
+      var pct = goal > 0 ? Math.min(100, (has ? at.in : pt.in) / goal * 100) : 0;
+      out += '<div class="pl-mcard" data-m="' + m + '"><h4>' + (m + 1) + '月</h4>'
+        + '<div class="pl-mrow"><span>予定</span><span>' + shortY(pt.in) + ' / −' + shortY(pt.out + pt.debt + pt.inv) + '</span></div>'
+        + '<div class="pl-mrow"><span>実績</span><span>' + (has ? shortY(at.in) + ' / −' + shortY(at.out) : '—') + '</span></div>'
+        + '<div class="pl-mrow"><span>収支</span><b class="' + (bal < 0 ? 'pl-neg' : 'pl-pos') + '">'
+        + (has ? (bal < 0 ? '−' : '+') + shortY(Math.abs(bal)) : '—') + '</b></div>'
+        + '<div class="pl-meter"><i style="width:' + pct + '%"></i></div></div>';
+    }
+    return '<div class="pl-yr">' + out + '</div>';
+  }
+
+  function renderDay() {
+    var box = document.getElementById('plDay');
+    if (!box) return;
+    var p = sel.split('-'), dd = new Date(+p[0], +p[1] - 1, +p[2]);
+    var acts = actualOn(sel), plans = planEventsOn(sel);
+    var h = '<div class="pl-card" style="margin-top:12px"><h3>' + (+p[1]) + '月' + (+p[2]) + '日（' + DOW[dd.getDay()] + '）</h3>';
+    h += '<div class="pl-list">';
+    if (!acts.length && !plans.length) h += '<div class="pl-row"><span style="color:var(--text3);font-size:12px">この日は何もない</span></div>';
+    acts.forEach(function (e) {
+      h += '<div class="pl-row"><span class="u" style="color:' + (e.k === 'in' ? 'var(--green)' : 'var(--red)') + '">実績</span>'
+        + '<span style="flex:1;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(e.n)
+        + (e.cat ? ' <span style="color:var(--text3)">' + esc(e.cat) + '</span>' : '') + '</span>'
+        + '<span style="font-size:12px;font-weight:600;font-variant-numeric:tabular-nums">'
+        + (e.k === 'in' ? '+' : '−') + yen(e.a) + '</span></div>';
+    });
+    plans.forEach(function (e) {
+      h += '<div class="pl-row"' + (P.done[e.key] ? ' style="opacity:.5"' : '') + '>'
+        + '<input type="checkbox" data-ek="' + e.key + '"' + (P.done[e.key] ? ' checked' : '')
+        + ' style="width:15px;height:15px;flex:0 0 auto;accent-color:var(--blue)" aria-label="済">'
+        + '<span class="u" style="color:' + e.c + '">' + esc(e.gn) + '</span>'
+        + '<span style="flex:1;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(e.n) + '</span>'
+        + '<span style="font-size:12px;font-weight:600;font-variant-numeric:tabular-nums">'
+        + (e.k === 'in' ? '+' : '−') + yen(e.a) + '</span>'
+        + (e.ref !== null ? '<button type="button" class="pl-x" data-off="' + e.ref + '" aria-label="削除">×</button>' : '')
+        + '</div>';
+    });
+    h += '</div>';
+    h += '<div class="pl-foot" style="border:0;padding-left:0">'
+      + '<input type="text" id="plAddN" class="nm" placeholder="この日だけの予定" style="flex:1;min-width:110px;border:0;border-bottom:0.5px solid var(--border);background:transparent;color:var(--text);font-size:12px;font-family:inherit;padding:2px">'
+      + '<select id="plAddG" style="font-size:12px;font-family:inherit;border:0;border-bottom:0.5px solid var(--border);background:transparent;color:var(--text)">'
+      + P.groups.map(function (g) { return '<option value="' + g.id + '">' + esc(g.n) + '</option>'; }).join('') + '</select>'
+      + '<select id="plAddK" style="font-size:12px;font-family:inherit;border:0;border-bottom:0.5px solid var(--border);background:transparent;color:var(--text)">'
+      + KINDS.map(function (k) { return '<option value="' + k[0] + '">' + k[1] + '</option>'; }).join('') + '</select>'
+      + '<input type="number" id="plAddA" placeholder="0" step="1000" style="width:78px;text-align:right;border:0;border-bottom:0.5px solid var(--border);background:transparent;color:var(--text);font-size:12px;font-family:inherit;padding:2px">'
+      + '<button type="button" class="pl-btn" id="plAddBtn">追加</button></div>';
+    h += '<div class="pl-hint">「実績」は家計簿に記録された取引。「予定」はここで組んだ計画で、チェックを付けると消化済みになる。</div></div>';
+    box.innerHTML = h;
+
+    box.querySelectorAll('input[type=checkbox]').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        if (cb.checked) P.done[cb.dataset.ek] = true; else delete P.done[cb.dataset.ek];
+        savePlan(); renderPlan();
+      });
+    });
+    box.querySelectorAll('[data-off]').forEach(function (b) {
+      b.addEventListener('click', function () { P.oneoffs.splice(+b.dataset.off, 1); savePlan(); renderPlan(); });
+    });
+    document.getElementById('plAddBtn').addEventListener('click', function () {
+      var a = num(document.getElementById('plAddA').value);
+      if (!a) return;
+      P.oneoffs.push({
+        g: document.getElementById('plAddG').value,
+        n: document.getElementById('plAddN').value.trim() || '予定',
+        k: document.getElementById('plAddK').value, a: a, date: sel
+      });
+      savePlan(); renderPlan();
+    });
+  }
+
+  /* ==================== 項目設定（予定タブ内） ==================== */
+  function groupTotals() {
+    var keys = [];
+    if (sumUnit === 'year') {
+      var yr = +String(refMonth).slice(0, 4);
+      for (var i = 1; i <= 12; i++) keys.push(yr + '-' + pad(i));
+    } else keys.push(refMonth);
+    var tot = {};
+    P.groups.forEach(function (g) { tot[g.id] = { plus: 0, minus: 0 }; });
+    keys.forEach(function (key) {
+      P.items.forEach(function (it) {
+        if (!it.a || !tot[it.g]) return;
+        if (it.f && key < it.f) return;
+        if (it.t && key > it.t) return;
+        if (it.k === 'in') tot[it.g].plus += it.a; else tot[it.g].minus += it.a;
+      });
+      P.oneoffs.forEach(function (o) {
+        if (!o.a || !tot[o.g] || String(o.date || '').slice(0, 7) !== key) return;
+        if (o.k === 'in') tot[o.g].plus += o.a; else tot[o.g].minus += o.a;
+      });
+    });
+    return tot;
+  }
+
+  function renderSettings() {
+    var box = document.getElementById('plSet');
+    if (!box) return;
+    var h = '';
+
+    // サブタブ
+    h += '<div class="pl-subtabs">'
+      + '<button type="button" data-s="base" aria-pressed="' + (setTab === 'base') + '">前提</button>'
+      + P.groups.map(function (g) {
+          return '<button type="button" data-s="' + g.id + '" aria-pressed="' + (setTab === g.id) + '">'
+            + '<i style="background:' + g.c + '"></i>' + esc(g.n) + '</button>';
+        }).join('')
+      + '<button type="button" data-s="one" aria-pressed="' + (setTab === 'one') + '">単発</button>'
+      + '<button type="button" class="plus" data-addg="1">＋ グループ</button></div>';
+
+    // 合計
+    var tot = groupTotals(), isY = sumUnit === 'year', gp = 0, gm = 0;
+    h += '<div class="pl-sum"><div class="h"><span class="lb">グループごとの合計</span>'
+      + '<input type="month" id="plRef" value="' + esc(refMonth) + '">'
+      + '<span class="sp"></span><div class="pl-seg">'
+      + '<button type="button" data-su="month" aria-pressed="' + (!isY) + '">月あたり</button>'
+      + '<button type="button" data-su="year" aria-pressed="' + isY + '">年あたり</button></div></div>';
+    P.groups.forEach(function (g) {
+      var t = tot[g.id] || { plus: 0, minus: 0 }, net = t.plus - t.minus;
+      gp += t.plus; gm += t.minus;
+      var main = (t.plus && t.minus) ? (net < 0 ? '−' : '+') + yen(Math.abs(net))
+        : t.plus ? '+' + yen(t.plus) : t.minus ? '−' + yen(t.minus) : '—';
+      var cls = (t.plus && !t.minus) ? 'pl-pos' : (t.minus && !t.plus) ? '' : (net < 0 ? 'pl-neg' : 'pl-pos');
+      h += '<div class="pl-sr" data-g="' + g.id + '"><i style="background:' + g.c + '"></i>'
+        + '<span class="nm">' + esc(g.n) + '</span>'
+        + '<span class="am ' + cls + '">' + main + '</span></div>';
+    });
+    var netAll = gp - gm;
+    h += '<div class="pl-sr tot"><span class="nm">合計（' + (isY ? '年' : '月') + 'あたり）</span>'
+      + '<span class="am ' + (netAll < 0 ? 'pl-neg' : 'pl-pos') + '">' + (netAll < 0 ? '−' : '+') + yen(Math.abs(netAll)) + '</span></div></div>';
+
+    // 中身
+    if (setTab === 'base') {
+      var B = P.base;
+      h += '<div class="pl-list">'
+        + baseRow('age', '今の年齢', '歳', 'dy') + baseRow('end', '何歳まで見るか', '歳', 'dy')
+        + baseRow('cash', '今の貯金', '円', 'am') + baseRow('raise', '収入の昇給率', '%/年', 'dy')
+        + baseRow('infl', '支出の上昇率', '%/年', 'dy') + baseRow('yield', '積立の利回り', '%/年', 'dy')
+        + '<div class="pl-foot"><button type="button" class="pl-btn" data-reset="1">項目を初期値に戻す</button></div></div>';
+    } else if (setTab === 'one') {
+      h += '<div class="pl-list">';
+      if (!P.oneoffs.length) h += '<div class="pl-row"><span style="font-size:12px;color:var(--text3)">なし（カレンダーの日付から追加できる）</span></div>';
+      P.oneoffs.forEach(function (o, i) {
+        h += '<div class="pl-row" data-oi="' + i + '">'
+          + '<input type="text" class="nm" data-f="n" value="' + esc(o.n) + '">'
+          + sel2('g', o.g) + sel2('k', o.k)
+          + '<input type="number" class="am" data-f="a" step="1000" value="' + o.a + '"><span class="u">円</span>'
+          + '<input type="text" class="ym" style="width:88px" data-f="date" value="' + esc(o.date) + '">'
+          + '<button type="button" class="pl-x" data-del="1" aria-label="削除">×</button></div>';
+      });
+      h += '</div>';
+    } else {
+      var g = grp(setTab);
+      h += '<div class="pl-list"><div class="pl-row" style="background:var(--bg2)">'
+        + '<input type="text" class="nm" id="plGName" value="' + esc(g.n) + '" style="font-weight:600">'
+        + '<span class="pl-sw">'
+        + PRESETS.map(function (c) {
+            return '<button type="button" data-c="' + c + '" style="background:' + c + '" aria-pressed="'
+              + (c.toLowerCase() === String(g.c).toLowerCase()) + '" aria-label="色"></button>';
+          }).join('')
+        + '<input type="color" id="plGColor" value="' + g.c + '" aria-label="色を選ぶ"></span>'
+        + '<button type="button" class="pl-btn" data-delg="1">グループを削除</button></div>';
+      var any = false;
+      P.items.forEach(function (it, idx) {
+        if (it.g !== g.id) return;
+        any = true;
+        h += '<div class="pl-row" data-ii="' + idx + '">'
+          + '<input type="text" class="nm" data-f="n" value="' + esc(it.n) + '">'
+          + sel2('k', it.k)
+          + '<input type="number" class="am" data-f="a" step="1000" value="' + it.a + '"><span class="u">円</span>'
+          + '<input type="number" class="dy" data-f="d" min="1" max="31" value="' + it.d + '"><span class="u">日</span>'
+          + '<input type="text" class="ym" data-f="f" value="' + esc(it.f) + '"><span class="u">〜</span>'
+          + '<input type="text" class="ym" data-f="t" value="' + esc(it.t) + '">'
+          + sel2('g', it.g)
+          + '<button type="button" class="pl-x" data-del="1" aria-label="削除">×</button></div>';
+      });
+      if (!any) h += '<div class="pl-row"><span style="font-size:12px;color:var(--text3)">まだ項目がない</span></div>';
+      h += '<div class="pl-foot"><button type="button" class="pl-btn" data-addi="1">＋ 行を追加</button></div></div>';
+    }
+    h += '<div class="pl-hint">期間は「開始の年月 〜 終了の年月」（例 2026-09 〜 2030-07）。毎月◯日に発生する扱いで、31日にすると月末に寄る。</div>';
+    box.innerHTML = h;
+    bindSettings();
+  }
+  function baseRow(k, label, unit, cls) {
+    return '<div class="pl-row"><label>' + label + '</label>'
+      + '<input type="number" class="' + cls + '" data-b="' + k + '" value="' + P.base[k] + '" step="' + (cls === 'am' ? '10000' : '0.5') + '">'
+      + '<span class="u">' + unit + '</span></div>';
+  }
+  function sel2(f, v) {
+    if (f === 'k') return '<select data-f="k">' + KINDS.map(function (k) {
+      return '<option value="' + k[0] + '"' + (k[0] === v ? ' selected' : '') + '>' + k[1] + '</option>';
+    }).join('') + '</select>';
+    return '<select class="g" data-f="g">' + P.groups.map(function (g) {
+      return '<option value="' + g.id + '"' + (g.id === v ? ' selected' : '') + '>' + esc(g.n) + '</option>';
+    }).join('') + '</select>';
+  }
+  function bindSettings() {
+    var box = document.getElementById('plSet');
+    box.querySelectorAll('[data-s]').forEach(function (b) {
+      b.addEventListener('click', function () { setTab = b.dataset.s; renderSettings(); });
+    });
+    box.querySelector('[data-addg]').addEventListener('click', function () {
+      var g = { id: newId(), n: '新しいグループ', c: PRESETS[P.groups.length % PRESETS.length] };
+      P.groups.push(g); setTab = g.id; savePlan(); renderPlan();
+    });
+    box.querySelectorAll('[data-su]').forEach(function (b) {
+      b.addEventListener('click', function () { sumUnit = b.dataset.su; renderSettings(); });
+    });
+    var ref = document.getElementById('plRef');
+    if (ref) ref.addEventListener('input', function () { if (this.value) { refMonth = this.value; renderSettings(); } });
+    box.querySelectorAll('.pl-sr[data-g]').forEach(function (r) {
+      r.addEventListener('click', function () { setTab = r.dataset.g; renderSettings(); });
+    });
+    box.querySelectorAll('[data-b]').forEach(function (inp) {
+      inp.addEventListener('input', function () {
+        P.base[inp.dataset.b] = num(inp.value); savePlan(); refreshSim();
+      });
+    });
+    var rs = box.querySelector('[data-reset]');
+    if (rs) rs.addEventListener('click', function () {
+      P.groups = clone(DEF.groups); P.items = clone(DEF.items); P.oneoffs = clone(DEF.oneoffs);
+      setTab = 'base'; savePlan(); renderPlan();
+    });
+    var gn = document.getElementById('plGName');
+    if (gn) gn.addEventListener('input', function () { grp(setTab).n = this.value; savePlan(); refreshSim(); });
+    var gc = document.getElementById('plGColor');
+    if (gc) gc.addEventListener('input', function () { grp(setTab).c = this.value; savePlan(); renderPlan(); });
+    box.querySelectorAll('.pl-sw button[data-c]').forEach(function (b) {
+      b.addEventListener('click', function () { grp(setTab).c = b.dataset.c; savePlan(); renderPlan(); });
+    });
+    var dg = box.querySelector('[data-delg]');
+    if (dg) dg.addEventListener('click', function () {
+      if (P.groups.length <= 1) return;
+      var id = setTab;
+      P.items = P.items.filter(function (it) { return it.g !== id; });
+      P.oneoffs = P.oneoffs.filter(function (o) { return o.g !== id; });
+      P.groups = P.groups.filter(function (x) { return x.id !== id; });
+      setTab = 'base'; savePlan(); renderPlan();
+    });
+    var ai = box.querySelector('[data-addi]');
+    if (ai) ai.addEventListener('click', function () {
+      P.items.push({ g: setTab, n: '', k: 'out', a: 0, d: 1, f: ym(cur), t: '2044-03' });
+      savePlan(); renderSettings(); refreshSim();
+    });
+    box.querySelectorAll('.pl-row[data-ii]').forEach(function (r) {
+      var idx = +r.dataset.ii;
+      r.querySelectorAll('[data-f]').forEach(function (inp) {
+        inp.addEventListener('input', function () {
+          var f = inp.dataset.f;
+          P.items[idx][f] = (f === 'a' || f === 'd') ? num(inp.value) : inp.value;
+          savePlan();
+          if (f === 'g') renderPlan(); else refreshSim();
+        });
+      });
+      r.querySelector('[data-del]').addEventListener('click', function () {
+        P.items.splice(idx, 1); savePlan(); renderPlan();
+      });
+    });
+    box.querySelectorAll('.pl-row[data-oi]').forEach(function (r) {
+      var i = +r.dataset.oi;
+      r.querySelectorAll('[data-f]').forEach(function (inp) {
+        inp.addEventListener('input', function () {
+          var f = inp.dataset.f;
+          P.oneoffs[i][f] = (f === 'a') ? num(inp.value) : inp.value;
+          savePlan(); refreshSim();
+        });
+      });
+      r.querySelector('[data-del]').addEventListener('click', function () {
+        P.oneoffs.splice(i, 1); savePlan(); renderSettings(); refreshSim();
+      });
+    });
+  }
+
+  /* ==================== 将来タブ ==================== */
+  function simulate() {
+    var B = P.base;
+    var a0 = Math.round(B.age), aEnd = Math.round(B.end);
+    if (aEnd <= a0) aEnd = a0 + 1;
+    var months = (aEnd - a0 + 1) * 12;
+    var raise = B.raise / 100, infl = B.infl / 100;
+    var mRate = Math.pow(1 + B.yield / 100, 1 / 12) - 1;
+    var cash = B.cash, inv = 0, lastDebt = null;
+    var ai = 0, ao = 0, ad = 0, av = 0;
+    monthly = []; yearly = [];
+
+    for (var i = 0; i < months; i++) {
+      var d = new Date(START.getFullYear(), START.getMonth() + i, 1);
+      var key = ym(d), curM = d.getFullYear() * 12 + d.getMonth();
+      var age = a0 + Math.floor(i / 12);
+      var mi = 0, mo = 0, md = 0, mv = 0;
+
+      P.items.forEach(function (it) {
+        if (!it.a) return;
+        if (it.f && key < it.f) return;
+        if (it.t && key > it.t) return;
+        var amt = it.a;
+        if (it.k === 'in') {
+          amt *= Math.pow(1 + raise, Math.max(0, Math.floor((curM - mIndex(it.f || key)) / 12)));
+          mi += amt;
+        } else if (it.k === 'out') { amt *= Math.pow(1 + infl, Math.floor(i / 12)); mo += amt; }
+        else if (it.k === 'debt') md += amt;
+        else mv += amt;
+      });
+      P.oneoffs.forEach(function (o) {
+        if (!o.a || String(o.date || '').slice(0, 7) !== key) return;
+        if (o.k === 'in') mi += o.a; else if (o.k === 'out') mo += o.a; else if (o.k === 'debt') md += o.a; else mv += o.a;
+      });
+
+      ai += mi; ao += mo; ad += md; av += mv;
+      cash += mi - mo - md - mv;
+      inv = inv * (1 + mRate) + mv;
+
+      var mrow = { lab: d.getFullYear() + '/' + pad(d.getMonth() + 1), y: d.getFullYear(), m: d.getMonth(), age: age,
+                   inc: mi, out: mo, debt: md, sav: mv, bal: mi - mo - md - mv, cash: cash, inv: inv, total: cash + inv };
+      monthly.push(mrow);
+      if (md > 0) lastDebt = mrow;
+
+      if ((i + 1) % 12 === 0) {
+        yearly.push({ lab: age + '歳', age: age, y: d.getFullYear(), m: 0, inc: ai, out: ao, debt: ad, sav: av,
+                      bal: ai - ao - ad - av, cash: cash, inv: inv, total: cash + inv });
+        ai = ao = ad = av = 0;
+      }
+    }
+    rows = (simUnit === 'month') ? monthly : yearly;
+    var min = monthly[0];
+    monthly.forEach(function (r) { if (r.total < min.total) min = r; });
+    sim = { min: min, last: monthly[monthly.length - 1], firstYear: yearly[0] || monthly[0], lastDebt: lastDebt };
+  }
+
+  function renderSim() {
+    if (!P) loadPlan();
+    simulate();
+    var isM = simUnit === 'month';
+    var f = sim.firstYear, min = sim.min, last = sim.last, mb = f.bal / 12;
+
+    var h = '<div class="pl-nav"><span class="ttl">' + monthly[0].lab + ' 〜 ' + last.lab
+      + '（' + monthly[0].age + '〜' + last.age + '歳）</span><span class="sp"></span>'
+      + '<div class="pl-seg">'
+      + '<button type="button" data-su="month" aria-pressed="' + isM + '">月単位</button>'
+      + '<button type="button" data-su="year" aria-pressed="' + (!isM) + '">年単位</button></div></div>';
+
+    h += '<div class="pl-grid4">'
+      + cell('月の収支', (mb < 0 ? '−' : '+') + yen(Math.abs(mb)), f.age + '歳の平均', mb < 0 ? 'pl-neg' : 'pl-pos')
+      + cell('資産の底', (min.total < 0 ? '−' : '') + yen(Math.abs(min.total)), min.lab + '（' + min.age + '歳）', min.total < 0 ? 'pl-neg' : '')
+      + cell('返済が終わる', sim.lastDebt ? sim.lastDebt.lab : '—', sim.lastDebt ? sim.lastDebt.age + '歳で完済' : '返済なし')
+      + cell('最終資産', man(last.total) + '円', last.age + '歳', last.total < 0 ? 'pl-neg' : 'pl-pos')
+      + '</div>';
+
+    h += '<div class="pl-card"><div style="height:220px"><canvas id="plChart"></canvas></div>'
+      + '<div class="pl-hint">予定の項目から引いた資産残高の見込み。前提や項目は「予定」タブの項目設定で変える。</div></div>';
+
+    h += '<div class="pl-tblwrap"><table class="pl-tbl"><thead><tr>'
+      + '<th>' + (isM ? '年月' : '年齢') + '</th><th>収入</th><th>支出</th><th>返済</th><th>積立</th>'
+      + '<th>' + (isM ? '月の収支' : '年間収支') + '</th><th>総資産</th></tr></thead><tbody>';
+    rows.forEach(function (r) {
+      h += '<tr' + (r.total < 0 ? ' style="background:rgba(216,90,48,.08)"' : '') + '>'
+        + '<td>' + r.lab + '</td><td>' + yen(r.inc) + '</td>'
+        + '<td>' + (r.out ? '−' + yen(r.out) : '—') + '</td>'
+        + '<td>' + (r.debt ? '−' + yen(r.debt) : '—') + '</td>'
+        + '<td>' + (r.sav ? '−' + yen(r.sav) : '—') + '</td>'
+        + '<td class="' + (r.bal < 0 ? 'pl-neg' : 'pl-pos') + '" style="font-weight:600">' + (r.bal < 0 ? '−' : '+') + yen(Math.abs(r.bal)) + '</td>'
+        + '<td style="font-weight:600' + (r.total < 0 ? ';color:var(--red)' : '') + '">' + (r.total < 0 ? '−' : '') + yen(Math.abs(r.total)) + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+
+    var root = document.getElementById('simRoot');
+    root.innerHTML = h;
+    root.querySelectorAll('[data-su]').forEach(function (b) {
+      b.addEventListener('click', function () { simUnit = b.dataset.su; renderSim(); });
+    });
+    drawChart();
+  }
+
+  function drawChart() {
+    var el = document.getElementById('plChart');
+    if (!el || typeof Chart === 'undefined') return;
+    if (chart) { try { chart.destroy(); } catch (e) {} chart = null; }
+    var isM = simUnit === 'month';
+    var labels = rows.map(function (r, i) {
+      if (isM) return r.m === 0 ? String(r.y) : '';
+      return (i % 2 === 0 || i === rows.length - 1) ? r.age + '歳' : '';
+    });
+    var css = getComputedStyle(document.documentElement);
+    var blue = (css.getPropertyValue('--blue') || '#378ADD').trim();
+    var text2 = (css.getPropertyValue('--text2') || '#666').trim();
+    var border = (css.getPropertyValue('--border') || 'rgba(0,0,0,.1)').trim();
+    chart = new Chart(el.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: rows.map(function (r) { return Math.round(r.total); }),
+          borderColor: blue, borderWidth: 2, tension: 0.25,
+          pointRadius: 0, pointHitRadius: 12,
+          fill: true, backgroundColor: 'rgba(55,138,221,0.12)'
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function (c) { var r = rows[c[0].dataIndex]; return r.lab + '（' + r.age + '歳）'; },
+              label: function (c) {
+                var r = rows[c.dataIndex];
+                var per = isM ? r.bal : r.bal / 12;
+                return ['総資産 ' + yen(r.total) + '円', '月の収支 ' + (per < 0 ? '−' : '+') + yen(Math.abs(per)) + '円'];
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: text2, font: { size: 10 }, autoSkip: false, maxRotation: 0 } },
+          y: {
+            grid: { color: border }, border: { display: false },
+            ticks: { color: text2, font: { size: 10 }, callback: function (v) { return man(v); } }
+          }
+        }
+      }
+    });
+  }
+
+  function refreshSim() {
+    var s = document.getElementById('tab9');
+    if (s && s.classList.contains('active')) renderSim();
+  }
+
+  /* ---------- 公開 ---------- */
+  window.planRender = function () { if (!P) loadPlan(); renderPlan(); };
+  window.simRender = function () { if (!P) loadPlan(); renderSim(); };
+  window.planReload = function () { P = null; loadPlan(); };
+
+  loadPlan();
+})();
+</script>
+
 </body>
 </html>
