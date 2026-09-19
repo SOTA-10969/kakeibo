@@ -161,7 +161,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
   <div class="tab active" onclick="switchTab(0,this)">概要</div>
   <div class="tab" onclick="switchTab(1,this)">月次</div>
   <div class="tab" onclick="switchTab(2,this)">取込</div>
-  <div class="tab" onclick="switchTab(3,this)">予算・予定</div>
+  <div class="tab" onclick="switchTab(3,this)">予算設定</div>
   <div class="tab" onclick="switchTab(4,this)">AI評価</div>
   <div class="tab" onclick="switchTab(5,this)">PDF出力</div>
   <div class="tab" onclick="switchTab(6,this)">カテゴリ</div>
@@ -193,6 +193,14 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
   <div class="chart-box" id="tatekaeBox" style="display:none;margin-bottom:12px">
     <div class="chart-title">立替（収支には入れていない）</div>
     <div id="tatekaeList"></div>
+  </div>
+  <div class="chart-box" style="margin-bottom:12px">
+    <div class="chart-title">予算と実績</div>
+    <div id="budgetTable"></div>
+  </div>
+  <div class="chart-box" style="margin-bottom:12px">
+    <div class="chart-title">予定</div>
+    <div id="planRoot"></div>
   </div>
   <div class="history-header">
     <span class="history-title">取引履歴</span>
@@ -247,23 +255,13 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 
 <!-- 予算 -->
 <div id="tab3" class="section">
-  <div style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px">
-    <h3 style="font-size:14px;font-weight:600;margin-bottom:4px">予算と実績</h3>
-    <p style="font-size:11px;color:var(--text2);margin-bottom:12px">立替は入れていない。差がマイナスなら使いすぎ</p>
-    <div id="budgetTable"></div>
+  <div style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px">
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:4px">カテゴリごとの予算</h3>
+    <p style="font-size:11px;color:var(--text2);margin-bottom:12px">ここで決めた金額が、概要ページの「予算と実績」に出る</p>
+    <div id="budgetInputList"></div>
+    <button onclick="saveBudget()" style="width:100%;margin-top:12px;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:var(--text);color:var(--bg);border:none">保存</button>
+    <div id="budgetProgress" style="display:none"></div>
   </div>
-  <div style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px">
-    <h3 style="font-size:14px;font-weight:600;margin-bottom:12px">予定</h3>
-    <div id="planRoot"></div>
-  </div>
-  <details style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px">
-    <summary style="font-size:14px;font-weight:600;cursor:pointer">予算の設定</summary>
-    <div style="margin-top:12px">
-      <div id="budgetInputList"></div>
-      <button onclick="saveBudget()" style="width:100%;margin-top:12px;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:var(--text);color:var(--bg);border:none">保存</button>
-      <div id="budgetProgress" style="display:none"></div>
-    </div>
-  </details>
 </div>
 
 <!-- AI評価 -->
@@ -878,7 +876,7 @@ function switchTab(i,el){
   document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===i));
   document.querySelectorAll('.section').forEach((p,j)=>p.classList.toggle('active',j===i));
   if(i===1) renderMonthly();
-  if(i===3){ renderBudgetTab(); planRender(); }
+  if(i===3) renderBudgetTab();
   if(i===6) renderCategoryManager();
   if(i===7) initSettingsTab();
   if(i===8) planRender();
@@ -919,6 +917,8 @@ function renderAll(){
   renderCards();
   renderPieCharts();
   renderTatekaeList();
+  renderBudgetTable();
+  if(typeof planRender==='function') planRender();
   renderHistory();
   populateCatFilter();
   renderMonthDataList();
