@@ -797,7 +797,7 @@ let transactions=JSON.parse(localStorage.getItem('kakeibo_tx')||'[]');
   if(localStorage.getItem('kakeibo_budgetmig_v14')) return;
   localStorage.removeItem('kakeibo_budget');
   localStorage.setItem('kakeibo_budgetmig_v14','1');
-  console.log('予算をスプレッドシートの値に入れ替えました');
+  console.log('予算を月ごと（スプレッドシートの値）に切り替えました');
 })();
 // 最後に表示していた月を復元（なければ最新データの月）
 const _savedMonth = JSON.parse(localStorage.getItem('kakeibo_current_month')||'null');
@@ -941,18 +941,45 @@ function renderAll(){
 
 
 // ==================== 予算 ====================
-const DEFAULT_BUDGET={
-  // スプレッドシート「2026年 予算表」10月の値。積立は支出ではないので入れない
-  '食費':20000,'日用品':5000,'外食':5000,'カフェ':1000,'飲み会代':10000,
-  '書籍購入代':5000,'衣服':0,'交通費':10000,'宿':0,'交際費':0,
-  'バイク':12000,
-  '電気':4300,'ガス':4000,'水道':2100,
-  '保険代':10370,'ジム代':8780,'アイパッド代':4900,'三井住友カード':5500,
-  'Apple':1860,'美容':3465,'手数料':500,'その他支出':0
+const MONTH_BUDGET={
+  // スプレッドシート「2026年 予算表」の各タブそのまま。
+  // 楽天証券の積立だけは支出ではないので入れていない（収支からも外してある）
+  '2026-09':{
+    '食費':20000,'日用品':10000,'外食':20000,'カフェ':1000,'飲み会代':10000,
+    '書籍購入代':0,'衣服':0,'交通費':30000,
+    '電気':4300,'ガス':4000,'水道':2100,
+    '保険代':10370,'ジム代':8780,'アイパッド代':4900,'バイク':12000,
+    '三井住友カード':5500,'Apple':1860,'美容':3465
+  },
+  '2026-10':{
+    '食費':20000,'日用品':5000,'外食':5000,'カフェ':1000,'飲み会代':10000,
+    '書籍購入代':5000,'衣服':0,'交通費':10000,
+    '電気':4300,'ガス':4000,'水道':0,
+    '保険代':10370,'ジム代':8780,'アイパッド代':4900,'バイク':12000,
+    '三井住友カード':5500,'Apple':1860,'美容':3465
+  },
+  '2026-11':{
+    '食費':20000,'日用品':5000,'外食':5000,'カフェ':1000,'飲み会代':10000,
+    '書籍購入代':5000,'衣服':0,'交通費':10000,
+    '電気':4300,'ガス':4000,'水道':2100,
+    '保険代':10370,'ジム代':8780,'アイパッド代':4900,'バイク':12000,
+    '三井住友カード':15000,'Apple':1860,'美容':3465
+  }
 };
+// 表にない月はこれを使う（11月と同じ形）
+const DEFAULT_BUDGET=MONTH_BUDGET['2026-11'];
+
+function budgetKey(y,m){
+  y=(y===undefined)?currentYear:y; m=(m===undefined)?currentMonth:m;
+  return y+'-'+String(m+1).padStart(2,'0');
+}
 
 function getBudget(){
-  return JSON.parse(localStorage.getItem('kakeibo_budget')||JSON.stringify(DEFAULT_BUDGET));
+  const k=budgetKey();
+  // 自分で保存した月の予算があればそれ、なければ表の値
+  const mine=localStorage.getItem('kakeibo_budget_'+k);
+  if(mine) return JSON.parse(mine);
+  return Object.assign({}, MONTH_BUDGET[k]||DEFAULT_BUDGET);
 }
 
 function saveBudget(){
@@ -961,10 +988,11 @@ function saveBudget(){
     const val=parseInt(el.value.replace(/[^0-9]/g,''))||0;
     if(val>0) budget[el.dataset.cat]=val;
   });
-  localStorage.setItem('kakeibo_budget',JSON.stringify(budget));
+  localStorage.setItem('kakeibo_budget_'+budgetKey(),JSON.stringify(budget));
   renderBudgetBar();
+  renderBudgetTable();
   renderBudgetProgress();
-  alert('予算を保存しました');
+  alert(budgetKey()+' の予算を保存しました');
 }
 
 function savingsBlock(left){
@@ -1066,6 +1094,11 @@ function renderBudgetTab(){
         <span style="font-size:11px;color:var(--text2);flex-shrink:0;min-width:60px;text-align:right">使用: ${fmt(spent)}</span>
       </div>`;
     }).join('');
+    inputEl.insertAdjacentHTML('afterbegin',
+      '<div style="font-size:11px;color:var(--text2);margin-bottom:10px">'
+      +currentYear+'年'+(currentMonth+1)+'月の予算'
+      +(localStorage.getItem('kakeibo_budget_'+budgetKey())?'（自分で変えた分）':'（予算表のまま）')
+      +'</div>');
   }
   renderBudgetTable();
   renderBudgetProgress();
