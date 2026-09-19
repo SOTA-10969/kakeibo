@@ -190,6 +190,10 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
       <div class="legend-row" id="incLegend"></div>
     </div>
   </div>
+  <div class="chart-box" id="tatekaeBox" style="display:none;margin-bottom:12px">
+    <div class="chart-title">立替（収支には入れていない）</div>
+    <div id="tatekaeList"></div>
+  </div>
   <div class="history-header">
     <span class="history-title">取引履歴</span>
     <div style="display:flex;gap:6px">
@@ -229,18 +233,9 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
     <input type="file" accept=".csv,text/csv,text/comma-separated-values,application/vnd.ms-excel" multiple style="display:none" onchange="importBulk(event)">
   </label>
   <div style="margin-top:8px;font-size:11px;color:var(--text3);line-height:1.8;padding:0 4px">
-    ファイル名に「paypay／ペイペイ」「ゆうちょ／郵」「rakuten／楽天／enavi」「smbc／三井」が含まれていると自動判別します<br>
-    <span style="color:var(--text2)">クレジットカードの明細は「請求月」に計上します。</span>例）楽天の <b>enavi202607.csv</b>（中身は6月の利用日）は <b>7月</b> に入ります。
+    ファイル名に「paypay／ペイペイ」「ゆうちょ／郵」「rakuten／楽天」「smbc／三井」が含まれていると自動判別します
   </div>
   <div class="import-log" id="importLog" style="margin-top:8px"></div>
-
-  <!-- 重複チェック -->
-  <div style="margin-top:20px;background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:14px">
-    <div style="font-size:13px;font-weight:500;margin-bottom:4px">重複チェック</div>
-    <p style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">表示中の月に、同じ取引が二重に入っていないか調べます。同じファイルを2回取り込んだときや、カードの支払いが銀行側にも出ているときに見つかります。</p>
-    <button onclick="runDupCheck()" style="width:100%;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:var(--text);color:var(--bg);border:none">表示中の月をチェック</button>
-    <div id="dupResult" style="margin-top:10px"></div>
-  </div>
 
   <!-- 月別データ一覧 -->
   <div style="margin-top:20px">
@@ -294,15 +289,10 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
       </div>
     </div>
   </div>
-  <div class="pdf-card" style="margin-bottom:12px">
-    <h3>PDFで出力（自分用）</h3>
+  <div class="pdf-card">
+    <h3>PDFで出力</h3>
     <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.6">収支サマリー・カテゴリ別内訳・取引履歴をPDFとして出力します。</p>
     <button class="primary-btn" onclick="exportPDF()" style="width:100%">PDF出力</button>
-  </div>
-  <div class="pdf-card">
-    <h3>PDFで出力（親用）</h3>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.6">収支サマリーとカテゴリ別支出だけをPDFにします。<b>どこで何にいくら使ったかという個別の取引明細は含まれません。</b></p>
-    <button class="primary-btn" onclick="exportPDFParent()" style="width:100%">親用PDFを出力</button>
   </div>
 </div>
 
@@ -487,7 +477,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 <div id="tab9" class="section"><div id="simRoot"></div></div>
 
 <button class="fab" onclick="openModal()">+</button>
-<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v12</div>
+<div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v7</div>
 
 <!-- 手動追加モーダル -->
 <div class="modal-bg" id="modalBg" onclick="closeModalBg(event)">
@@ -726,49 +716,70 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 
 <script>
 // ==================== 定数 ====================
-const CATS_EXP=['食費','日用品','交通費','外食','娯楽','医療','通信費','光熱費','衣服','教育','保険','住居','立替','その他支出'];
+const CATS_EXP=['食費','日用品','外食','カフェ','飲み会代','書籍購入代','衣服','交通費','宿','交際費','バイク','電気','ガス','水道','保険代','ジム代','アイパッド代','三井住友カード','Apple','美容','手数料','立替','その他支出'];
+// 立替と回収は収支・円グラフに入れず、リストだけで見せる
+const TATEKAE_CATS=['立替','回収'];
 const CATS_INC=['給料','副業','ボーナス','利子','回収','その他収入'];
 const CAT_COLORS={
-  '食費':'#1D9E75','日用品':'#3266ad','交通費':'#EF9F27','外食':'#D85A30',
-  '娯楽':'#7F77DD','医療':'#D4537E','通信費':'#378ADD','光熱費':'#BA7517',
-  '衣服':'#5DCAA5','教育':'#AFA9EC','保険':'#F0997B','住居':'#97C459',
+  '食費':'#1D9E75','日用品':'#3266ad','外食':'#D85A30','カフェ':'#B5651D',
+  '飲み会代':'#C0392B','書籍購入代':'#7F77DD','衣服':'#5DCAA5','交通費':'#EF9F27',
+  '宿':'#8E6FBF','交際費':'#D4537E','バイク':'#2C7873',
+  '電気':'#F0B429','ガス':'#E8743B','水道':'#378ADD',
+  '保険代':'#F0997B','ジム代':'#97C459','アイパッド代':'#9B8B70','三井住友カード':'#5B8FA8',
+  'Apple':'#888780','美容':'#DDA0C4','手数料':'#A0A0A0',
   '立替':'#AFA9EC','その他支出':'#888780','給料':'#1D9E75','回収':'#5DCAA5','副業':'#3266ad','ボーナス':'#EF9F27',
   '利子':'#7F77DD','その他収入':'#888780'
 };
 const EXCLUDE_KW=['paypayへの銀行チャージ','銀行へ出金','paypay残高チャージ','チャージ振込','振込チャージ'];
 const CAT_RULES=[
-  // 食費
-  {kw:['スーパー','コンビニ','食料','イオン','西友','ライフ','ファミマ','ファミリーマート','セブン','ローソン','食品','八百屋','マルエー','マルキョウ','ピアゴ','ベイシア','業務スーパー','マックスバリュ','ヨークベニマル','コープ','生協','グロサリー'],cat:'食費'},
+  // 光熱費（1行ずつ）
+  {kw:['九州電力'],cat:'電気'},
+  {kw:['共栄ガス','キョウエイガス'],cat:'ガス'},
+  {kw:['佐世保市水道','水道局'],cat:'水道'},
+  // 固定費
+  {kw:['エニタイム','ジム'],cat:'ジム代'},
+  {kw:['損害保険','損保','コープ共済','コープキョウサイ'],cat:'保険代'},
+  {kw:['df.ペイデイ','ペイデイ'],cat:'アイパッド代'},
+  {kw:['三井住友カード'],cat:'三井住友カード'},
+  {kw:['appleサービス','apple.com'],cat:'Apple'},
+  {kw:['hair make','美容室','ヘアサロン','美容'],cat:'美容'},
+  {kw:['レッドバロン','レツドバロン','バイク'],cat:'バイク'},
+  // カフェ（外食より先に見る）
+  {kw:['珈琲','コーヒー','カフェ','cafe','焙煎','pronto','スターバックス','スタバ','ドトール','タリーズ','コメダ'],cat:'カフェ'},
+  // 飲み会
+  {kw:['居酒屋','いろり家','ひげ虎','かな川','酒場','屋台','飲み会','飲み放題'],cat:'飲み会代'},
   // 外食
-  {kw:['レストラン','ランチ','ディナー','カフェ','スタバ','ドトール','吉野家','マクドナルド','マック','モスバーガー','すき家','松屋','ケンタッキー','kfc','サイゼ','ガスト','デニーズ','ジョイフル','はま寿司','くら寿司','スシロー','丸亀','餃子の王将','ラーメン','寿司','焼肉','居酒屋','飲み会'],cat:'外食'},
-  // 交通費
-  {kw:['電車','バス','タクシー','交通','suica','icoca','pasmo','新幹線','jr','航空','飛行機','ana','jal','高速','駐車場','駐輪','apollostation','エネオス','出光','コスモ','昭和シェル','shell','エッソ','モービル','キグナス','ガソリン','給油','セルフ'],cat:'交通費'},
-  // 医療
-  {kw:['ドラッグ','薬局','調剤','クスリ','病院','クリニック','医院','診療','歯科','眼科','内科','外科','整骨','接骨','マツキヨ','ウエルシア','ツルハ','コクミン'],cat:'医療'},
-  // 娯楽
-  {kw:['netflix','spotify','amazon prime','youtube','hulu','disney','dazn','ゲーム','映画','カラオケ','ボウリング','温泉','銭湯','遊園地','テーマパーク','ライブ','コンサート','娯楽','趣味','本','書籍','漫画','コミック'],cat:'娯楽'},
-  // 通信費
-  {kw:['docomo','au','softbank','ソフトバンク','rakuten mobile','楽天モバイル','携帯','スマホ','通信','wifi','ntt','インターネット','iphone','android','sim'],cat:'通信費'},
-  // 光熱費
-  {kw:['電気','東京電力','関西電力','九州電力','東北電力','中部電力','ガス','東京ガス','大阪ガス','西部ガス','共栄ガス','きょうえいガス','水道','下水','光熱'],cat:'光熱費'},
-  // 衣服
-  {kw:['ユニクロ','gu','ジーユー','洋服','衣料','アパレル','ファッション','zara','h&m','しまむら','ワークマン','スポーツ用品','アディダス','ナイキ','靴','バッグ','財布'],cat:'衣服'},
-  // 住居
-  {kw:['家賃','地代','賃料','住居','管理費','修繕','引越','ホームセンター','カーマ','コーナン','ケーヨー'],cat:'住居'},
+  {kw:['すき家','吉野家','丸亀','マクドナルド','モスバーガー','びっくりドンキー','かつや','濵かつ','山岡家','めんちゃんこ','ラーメン','麺処','寿司','定食','食堂','ぎょうざ','どんどん','レストラン','ランチ','ディナー','松屋','ケンタッキー','kfc','サイゼ','ガスト','デニーズ','ジョイフル','はま寿司','くら寿司','スシロー','餃子の王将','焼肉'],cat:'外食'},
+  // 食費（スーパー・コンビニ）
+  {kw:['エレナ','トライアル','業務スーパー','サニー','サンリブ','サミット','カルディ','ana festa','セブン-イレブン','セブンイレブン','ファミリーマート','ファミマ','ローソン','ジハンピ','スーパー','コンビニ','食料','食品','イオン','西友','ライフ','マルキョウ','マックスバリュ','生協'],cat:'食費'},
   // 日用品
-  {kw:['日用品','無印','ニトリ','イケア','ikea','100均','百均','ダイソー','セリア','キャンドゥ','ロフト','東急ハンズ','ハンズ','洗剤','シャンプー','ティッシュ'],cat:'日用品'},
-  // 保険
-  {kw:['保険','共済','コープきょうさい','こくみん共済','損保','生命保険','火災保険','自動車保険'],cat:'保険'},
-  // 教育
-  {kw:['学費','塾','教育','スクール','予備校','習い事','英会話','プログラミング','資格','書店','教材'],cat:'教育'},
-  // 給料・収入
-  {kw:['給与','給料','salary','ｱｲ.ｹｲ.ｹｲ','ことら','振込'],cat:'給料'},
-  {kw:['ボーナス','賞与'],cat:'ボーナス'},
-  {kw:['返金','キャッシュバック','還元','refund'],cat:'その他収入'},
+  {kw:['ダイレックス','サンドラッグ','ダイソー','セリア','コスモス','ドラッグ'],cat:'日用品'},
+  // 書籍
+  {kw:['bookoff','ブックオフ','紀伊國屋','ジュンク堂','丸善','蔦屋','tsutaya','書店','本屋'],cat:'書籍購入代'},
+  // 衣服
+  {kw:['ユニクロ','ヒマラヤ','衣料'],cat:'衣服'},
+  // 交通費（ガソリン・レンタカー・航空券も全部ここ）
+  {kw:['apollostation','eneos','出光','idex','jr九州','全日空','エ-エヌエ-','suica','タイムズ','タクシ','高速','駐車','ガソリン','電車','定期券'],cat:'交通費'},
+  // 宿（ネカフェ泊も）
+  {kw:['自遊空間','快活','ホテル','hotel','旅館','ゲストハウス','カプセル'],cat:'宿'},
+  // 手数料
+  {kw:['手数料','再振替'],cat:'手数料'},
 ];
+
 
 // ==================== 状態 ====================
 let transactions=JSON.parse(localStorage.getItem('kakeibo_tx')||'[]');
+// 旧カテゴリ（娯楽・医療・通信費・光熱費・教育・保険・住居）を新しい名前に読み替える。1回だけ走る
+(function migrateCategories(){
+  if(localStorage.getItem('kakeibo_catmig_v13')) return;
+  const MAP={'娯楽':'その他支出','医療':'その他支出','通信費':'その他支出','光熱費':'電気',
+             '教育':'書籍購入代','保険':'保険代','住居':'その他支出'};
+  let changed=0;
+  transactions.forEach(t=>{ if(MAP[t.category]){ t.category=MAP[t.category]; changed++; } });
+  if(changed) localStorage.setItem('kakeibo_tx',JSON.stringify(transactions));
+  localStorage.setItem('kakeibo_catmig_v13','1');
+  if(changed) console.log('カテゴリを読み替えました: '+changed+'件');
+})();
 // 最後に表示していた月を復元（なければ最新データの月）
 const _savedMonth = JSON.parse(localStorage.getItem('kakeibo_current_month')||'null');
 let currentMonth = _savedMonth ? _savedMonth.month : new Date().getMonth();
@@ -778,49 +789,19 @@ let expChart=null,incChart=null,monthlyChart=null;
 // ==================== ユーティリティ ====================
 function save(){localStorage.setItem('kakeibo_tx',JSON.stringify(transactions));}
 function fmt(n){return '¥'+Math.round(Math.abs(n)).toLocaleString();}
-
-// ==================== 計上月（どの月の家計に入れるか） ====================
-// クレジットカードの明細は「利用日」と「請求（支払）月」がずれる。
-// 例) 楽天カード enavi202607.csv ＝ 6月に使った分が 7月請求。
-//     利用日で振り分けると「7月分のファイル」が丸ごと6月に入ってしまう。
-// そこで tx.ym（'YYYY-MM' 形式の計上月）を持たせ、集計・表示はすべて ym を基準にする。
-// ym が無い取引（PayPay・ゆうちょ・手動入力など）は従来どおり取引日をそのまま使う。
-const CARD_SOURCES=['楽天カード','三井住友カード'];
-
-function txYM(tx){
-  if(tx.ym&&/^\d{4}-\d{2}$/.test(tx.ym)){
-    return {y:parseInt(tx.ym.slice(0,4),10), m:parseInt(tx.ym.slice(5,7),10)-1};
-  }
-  const d=new Date(tx.date);
-  return {y:d.getFullYear(), m:d.getMonth()};
-}
-function txYMKey(tx){
-  const t=txYM(tx);
-  return t.y+'-'+String(t.m+1).padStart(2,'0');
-}
-function inMonth(tx,y,m){
-  const t=txYM(tx);
-  return t.y===y&&t.m===m;
-}
-// 利用日の翌月を請求月とみなす（月末締め・翌月払いのカードの標準ルール）
-function nextMonthYM(dateStr){
-  const d=new Date(dateStr);
-  if(isNaN(d.getTime())) return null;
-  let y=d.getFullYear(), m=d.getMonth()+1;
-  if(m>11){m=0;y++;}
-  return y+'-'+String(m+1).padStart(2,'0');
-}
-
 function getMonthTx(y,m){
   return transactions.filter(tx=>{
     if(tx.excluded) return false;
     if(tx.cashParentId) return false;
     if(tx.tatekaePairId) return false;
+    // 立替と回収は収支に入れない（下の「立替」リストで見る）
+    if(TATEKAE_CATS.includes(tx.category)) return false;
     // 紐づけ済みの回収取引は除外（支出側で差額管理）
     if(tx.category==='回収'&&tx.kaishuParentId) return false;
     // 回収完了した支出は除外（差額0なので不要）
     if(tx.type==='expense'&&isKaishuComplete(tx.id)) return false;
-    return inMonth(tx,y,m);
+    const d=new Date(tx.date);
+    return d.getFullYear()===y&&d.getMonth()===m;
   });
 }
 
@@ -856,7 +837,10 @@ function getMonthTxWithCash(y,m){
   // 現金子取引も含めた全取引（グラフ・予算計算用）
   return transactions.filter(tx=>{
     if(tx.excluded) return false;
-    if(!inMonth(tx,y,m)) return false;
+    // 立替と回収は円グラフ・予算に入れない
+    if(TATEKAE_CATS.includes(tx.category)) return false;
+    const d=new Date(tx.date);
+    if(d.getFullYear()!==y||d.getMonth()!==m) return false;
     // 現金引き出し親は子取引がある場合は除外し、子取引で計上
     if(!tx.cashParentId){
       const isCashWithdraw = tx.source==='ゆうちょ' && tx.type==='expense' && (tx.name.includes('カード')||tx.name.includes('ATM')||tx.name.includes('現金'));
@@ -868,19 +852,6 @@ function getMonthTxWithCash(y,m){
     return true;
   });
 }
-// 既に取り込み済みのカード明細に計上月（請求月＝利用日の翌月）を後付けする。
-// ym が無いカード取引だけを対象にするので、何度呼んでも結果は変わらない。
-function migrateCardBillingMonth(){
-  let changed=false;
-  transactions.forEach(tx=>{
-    if(tx.ym) return;
-    if(!CARD_SOURCES.includes(tx.source)) return;
-    const ym=nextMonthYM(tx.date);
-    if(ym){tx.ym=ym;changed=true;}
-  });
-  return changed;
-}
-
 function updateMonthLabel(){
   document.getElementById('monthLabel').textContent=currentYear+'年'+(currentMonth+1)+'月';
   // 表示中の月を保存
@@ -907,9 +878,39 @@ function switchTab(i,el){
 }
 
 // ==================== 描画 ====================
+function renderTatekaeList(){
+  const box=document.getElementById('tatekaeBox');
+  const el=document.getElementById('tatekaeList');
+  if(!box||!el) return;
+  const items=transactions.filter(t=>{
+    if(t.excluded) return false;
+    if(!TATEKAE_CATS.includes(t.category)) return false;
+    const d=new Date(t.date);
+    return d.getFullYear()===currentYear&&d.getMonth()===currentMonth;
+  }).sort((a,b)=>new Date(a.date)-new Date(b.date));
+  if(!items.length){box.style.display='none';return;}
+  box.style.display='';
+  let out=0,back=0;
+  const rows=items.map(t=>{
+    const isBack=(t.type==='income'||t.category==='回収');
+    if(isBack) back+=t.amount; else out+=t.amount;
+    const d=new Date(t.date);
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px">'
+      +'<div style="display:flex;gap:8px;align-items:center;min-width:0">'
+      +'<span style="font-size:11px;color:var(--text3);white-space:nowrap">'+(d.getMonth()+1)+'/'+d.getDate()+'</span>'
+      +'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(t.name)+'</span></div>'
+      +'<span style="white-space:nowrap;color:'+(isBack?'#1D9E75':'var(--text)')+'">'+(isBack?'+':'\u2212')+fmt(t.amount)+'</span></div>';
+  }).join('');
+  el.innerHTML=rows
+    +'<div style="display:flex;justify-content:space-between;padding:9px 0 2px;font-size:13px;font-weight:600">'
+    +'<span>まだ戻ってきていない分</span><span>'+fmt(out-back)+'</span></div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:2px">立てかえ '+fmt(out)+' / 戻り '+fmt(back)+'。収支にも円グラフにも入れていない</div>';
+}
+
 function renderAll(){
   renderCards();
   renderPieCharts();
+  renderTatekaeList();
   renderHistory();
   populateCatFilter();
   renderMonthDataList();
@@ -920,9 +921,11 @@ function renderAll(){
 
 // ==================== 予算 ====================
 const DEFAULT_BUDGET={
-  '食費':30000,'外食':20000,'交通費':15000,'日用品':10000,
-  '娯楽':10000,'医療':5000,'通信費':8000,'光熱費':10000,
-  '衣服':10000,'教育':5000,'保険':10000,'住居':80000,'その他支出':10000
+  '食費':30000,'日用品':10000,'外食':20000,'カフェ':1000,'飲み会代':0,
+  '書籍購入代':5000,'衣服':0,'交通費':30000,'宿':0,'交際費':0,'バイク':0,
+  '電気':4300,'ガス':4000,'水道':2100,
+  '保険代':10370,'ジム代':8780,'アイパッド代':4900,'三井住友カード':15000,
+  'Apple':1860,'美容':3465,'手数料':500,'その他支出':0
 };
 
 function getBudget(){
@@ -1039,7 +1042,8 @@ function renderMonthDataList(){
 
   const monthMap={};
   transactions.filter(t=>!t.excluded&&!t.cashParentId).forEach(t=>{
-    const key=txYMKey(t);
+    const d=new Date(t.date);
+    const key=d.getFullYear()+'-'+(String(d.getMonth()+1).padStart(2,'0'));
     if(!monthMap[key]) monthMap[key]={sources:{},income:0,expense:0};
     const src=t.source||'手動';
     monthMap[key].sources[src]=(monthMap[key].sources[src]||0)+1;
@@ -1091,13 +1095,20 @@ function renderMonthDataList(){
 
 function deleteByMonthSource(key, source){
   const [y,m]=key.split('-');
-  const isTarget=t=>txYMKey(t)===key&&(t.source||'手動')===source;
-  const count=transactions.filter(isTarget).length;
+  const count=transactions.filter(t=>{
+    const d=new Date(t.date);
+    return d.getFullYear()===parseInt(y)&&d.getMonth()===parseInt(m)-1&&(t.source||'手動')===source;
+  }).length;
   if(!confirm(`${y}年${parseInt(m)}月の「${source}」データ ${count}件を削除しますか？`)) return;
   // 子取引も含めて削除
-  const parentIds=transactions.filter(isTarget).map(t=>t.id);
+  const parentIds=transactions.filter(t=>{
+    const d=new Date(t.date);
+    return d.getFullYear()===parseInt(y)&&d.getMonth()===parseInt(m)-1&&(t.source||'手動')===source;
+  }).map(t=>t.id);
   transactions=transactions.filter(t=>{
-    if(isTarget(t)) return false;
+    const d=new Date(t.date);
+    const sameMonth=d.getFullYear()===parseInt(y)&&d.getMonth()===parseInt(m)-1;
+    if(sameMonth&&(t.source||'手動')===source) return false;
     if(t.cashParentId&&parentIds.includes(t.cashParentId)) return false;
     return true;
   });
@@ -1106,208 +1117,16 @@ function deleteByMonthSource(key, source){
 
 function deleteByMonth(key){
   const [y,m]=key.split('-');
-  const count=transactions.filter(t=>txYMKey(t)===key&&!t.cashParentId).length;
-  if(!confirm(`${y}年${parseInt(m)}月のデータ ${count}件をすべて削除しますか？`)) return;
-  transactions=transactions.filter(t=>txYMKey(t)!==key);
-  save(); renderAll();
-}
-
-// ==================== 重複チェック ====================
-// 「同じ取引が二重に入っていないか」を調べる。主な原因は
-//   ① 同じCSVを2回取り込んだ（このアプリは以前チェックしていなかった）
-//   ② カードの支払いが、カード明細と銀行の引き落としの両方で計上された
-// ①は日付・金額・店名・ソースが完全一致、②は日付・金額が一致してソースが違う、で見つかる。
-function dupNameKey(s){return (s||'').replace(/[\s　]+/g,'').toLowerCase();}
-function dupKey(t){
-  return [t.date,Math.round(t.amount),t.type,dupNameKey(t.name),t.source||'手動'].join('|');
-}
-
-// idの先頭はmakeId()が入れた取込時刻(Date.now())。同じCSVの行はミリ秒単位でほぼ同時刻、
-// 取り込み直した重複は必ず時間が離れる。これで「明細どおりの同額2件」と「二重取込」を区別する。
-function idTime(id){
-  const m=String(id||'').match(/^(\d{13})/);
-  return m?parseInt(m[1],10):null;
-}
-const SAME_IMPORT_MS=5000;
-
-// 同じ内容の取引を「どのCSVの、どの取込か」でまとめる。
-// 塊が2つ以上できたら、同じ取引が別々に入ってきた＝重複。
-// ・同じファイルを2回取り込んだ  → ファイル名は同じだが取込時刻が離れる
-// ・期間が重なった別ファイルを一緒にドロップ → 時刻はほぼ同じだがファイル名が違う
-//   （ゆうちょ・PayPayは期間指定ダウンロードなので、これが起きやすい）
-// どちらも別の塊になるよう、ファイル名と時刻の両方で区切る。
-function importClusters(group){
-  const sorted=[...group].sort((a,b)=>(idTime(a.id)||0)-(idTime(b.id)||0));
-  const clusters=[];
-  sorted.forEach(t=>{
-    const last=clusters[clusters.length-1];
-    const prevTx=last?last[last.length-1]:null;
-    const near=prevTx&&idTime(t.id)!==null&&idTime(prevTx.id)!==null
-      &&idTime(t.id)-idTime(prevTx.id)<=SAME_IMPORT_MS;
-    // 取込元ファイルが両方わかっていて違うなら、時刻が近くても別の塊
-    const sameFile=!prevTx||!t.file||!prevTx.file||t.file===prevTx.file;
-    if(near&&sameFile) last.push(t);
-    else clusters.push([t]);
-  });
-  return clusters;
-}
-
-// 重複グループのうち、どれを残してどれを消すか。
-// 明細に元から複数行あるケース（918円×2 が2回取り込まれて4件、など）を壊さないよう、
-// 「1件だけ残す」のではなく「取込1回分の塊をまるごと1つ残す」。
-function dupResolution(group){
-  const clusters=importClusters(group);
-  if(clusters.length<2) return {keep:group,remove:[]};
-  // 件数が最も多い塊を残す（同数なら新しい方）
-  let best=0;
-  clusters.forEach((c,i)=>{ if(c.length>=clusters[best].length) best=i; });
-  const keep=clusters[best];
-  const remove=clusters.filter((_,i)=>i!==best).flat();
-  return {keep,remove};
-}
-
-function findDuplicates(y,m){
-  const txs=transactions.filter(t=>!t.excluded&&!t.cashParentId&&inMonth(t,y,m));
-
-  // 日付・金額・店名・ソースが完全に同じもの
-  const byExact={};
-  txs.forEach(t=>{(byExact[dupKey(t)]=byExact[dupKey(t)]||[]).push(t);});
-  const allSame=Object.values(byExact).filter(g=>g.length>1);
-
-  // ① 二重取込（別々のファイル／別々のタイミングで入ってきた同じ取引）
-  const exact=allSame.filter(g=>importClusters(g).length>1)
-    .sort((a,b)=>b[0].amount*(b.length-1)-a[0].amount*(a.length-1));
-  // ①' 1回の取込・同じCSVの中に元から複数行あるもの（明細どおりの可能性が高い）
-  const sameFile=allSame.filter(g=>importClusters(g).length===1)
-    .sort((a,b)=>b[0].amount-a[0].amount);
-
-  // ② 別ソース重複（カード払いが銀行側にも出ている疑い）
-  const exactIds=new Set(allSame.flat().map(t=>t.id));
-  const byDayAmt={};
-  txs.filter(t=>t.type==='expense'&&!exactIds.has(t.id)).forEach(t=>{
-    const k=t.date+'|'+Math.round(t.amount);
-    (byDayAmt[k]=byDayAmt[k]||[]).push(t);
-  });
-  const cross=Object.values(byDayAmt)
-    .filter(g=>g.length>1&&new Set(g.map(t=>t.source||'手動')).size>1)
-    .sort((a,b)=>b[0].amount-a[0].amount);
-
-  // 重複を解消したら減る金額
-  const excess=exact.reduce((a,g)=>a+dupResolution(g).remove.reduce((s,t)=>s+t.amount,0),0);
-  return {exact,sameFile,cross,excess,checked:txs.length};
-}
-
-function runDupCheck(){
-  const el=document.getElementById('dupResult');
-  const r=findDuplicates(currentYear,currentMonth);
-  const head=`<div style="font-size:11px;color:var(--text3);margin-bottom:8px">${currentYear}年${currentMonth+1}月の ${r.checked}件をチェックしました</div>`;
-
-  if(!r.exact.length&&!r.cross.length&&!r.sameFile.length){
-    el.innerHTML=head+`<div style="padding:12px;border-radius:var(--radius);background:#5DCAA522;color:#1D9E75;font-size:13px;font-weight:500;text-align:center">✅ 重複は見つかりませんでした</div>`;
-    return;
-  }
-
-  const row=t=>{
+  const count=transactions.filter(t=>{
     const d=new Date(t.date);
-    return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0">
-      <span style="color:var(--text3);flex-shrink:0">${(d.getMonth()+1)}/${d.getDate()}</span>
-      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(t.name)}</span>
-      <span style="color:var(--text3);flex-shrink:0;font-size:10px">${t.source||'手動'}</span>
-      <span style="flex-shrink:0;font-weight:500">${fmt(t.amount)}</span>
-    </div>`;
-  };
-
-  let html=head;
-
-  if(!r.exact.length){
-    html+=`<div style="padding:10px 12px;border-radius:var(--radius);background:#5DCAA522;color:#1D9E75;font-size:12px;font-weight:500;margin-bottom:8px">✅ 二重取込による重複はありません</div>`;
-  }
-
-  if(r.exact.length){
-    html+=`<div style="padding:10px 12px;border-radius:var(--radius);background:#D85A3022;color:#D85A30;font-size:12px;font-weight:500;margin-bottom:8px">
-      二重取込の疑いが ${r.exact.length}組（重複分 ${fmt(r.excess)}）<br>
-      <span style="font-weight:400;font-size:11px">別々のタイミングで取り込まれた、まったく同じ取引です</span>
-    </div>`;
-    html+=r.exact.map((g,i)=>{
-      const res=dupResolution(g);
-      return `<div style="border:0.5px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:6px">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">同じ取引が ${g.length}件（${res.keep.length}件だけ残します）</div>
-      ${g.map(row).join('')}
-      <button onclick="resolveDupGroup(${i})" style="width:100%;margin-top:8px;padding:7px;border-radius:6px;font-size:12px;cursor:pointer;background:var(--text);color:var(--bg);border:none;font-weight:500">${res.remove.length}件を削除（-${fmt(res.remove.reduce((a,t)=>a+t.amount,0))}）</button>
-    </div>`;}).join('');
-    html+=`<button onclick="resolveAllDups()" style="width:100%;margin:4px 0 12px;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:#D85A30;color:#fff;border:none">重複 ${r.exact.length}組をまとめて解消（-${fmt(r.excess)}）</button>`;
-  }
-
-  if(r.sameFile.length){
-    html+=`<div style="padding:10px 12px;border-radius:var(--radius);background:var(--bg2);color:var(--text2);font-size:12px;margin-bottom:8px;margin-top:12px">
-      <b style="color:var(--text)">同じ内容が同じ日に複数件（${r.sameFile.length}組）</b><br>
-      <span style="font-size:11px">1回の取込で入ったものです。<b>明細に元から複数行ある＝本物の決済</b>のことが多いので、まとめては消しません。心当たりがなければ組ごとに減らしてください。</span>
-    </div>`;
-    html+=r.sameFile.map((g,i)=>{
-      const files=[...new Set(g.map(t=>t.file).filter(Boolean))];
-      const meta=files.length?`<div style="font-size:10px;color:var(--text3);margin-top:4px;word-break:break-all">取込元: ${files.map(escHtml).join(' / ')}</div>`:
-        `<div style="font-size:10px;color:var(--text3);margin-top:4px">取込元ファイル不明（この機能を入れる前に取り込んだデータ）</div>`;
-      return `<div style="border:0.5px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:6px">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">同じ内容が ${g.length}件</div>
-      ${g.map(row).join('')}${meta}
-      <button onclick="trimSameFileGroup(${i})" style="width:100%;margin-top:8px;padding:7px;border-radius:6px;font-size:12px;cursor:pointer;background:none;border:0.5px solid var(--border);color:var(--text2)">1件だけ残して ${g.length-1}件を削除</button>
-    </div>`;}).join('');
-  }
-
-  if(r.cross.length){
-    html+=`<div style="padding:10px 12px;border-radius:var(--radius);background:#EF9F2722;color:#BA7517;font-size:12px;font-weight:500;margin-bottom:8px;margin-top:12px">
-      同じ日・同じ金額で別々のソースにある取引が ${r.cross.length}組<br>
-      <span style="font-weight:400;font-size:11px">カード払いが銀行側にも出ている可能性があります。二重なら片方を「集計除外」にしてください</span>
-    </div>`;
-    html+=r.cross.map(g=>`<div style="border:0.5px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:6px">
-      ${g.map(t=>`${row(t)}<button onclick="excludeTx('${t.id}')" style="width:100%;margin-top:4px;padding:5px;border-radius:6px;font-size:11px;cursor:pointer;background:none;border:0.5px solid var(--border);color:var(--text2)">この「${t.source||'手動'}」側を集計除外にする</button>`).join('')}
-    </div>`).join('');
-  }
-
-  el.innerHTML=html;
-}
-
-function applyDupRemoval(list){
-  const removeIds=new Set(list.map(t=>t.id));
-  transactions=transactions.filter(t=>!removeIds.has(t.id)&&!(t.cashParentId&&removeIds.has(t.cashParentId)));
-  save(); renderAll(); runDupCheck();
-  showToast(`${removeIds.size}件の重複を削除しました`);
-}
-
-// 二重取込ぶんを削除する（取込1回分の塊は残す）
-function resolveDupGroup(idx){
-  const g=findDuplicates(currentYear,currentMonth).exact[idx];
-  if(!g) return;
-  const res=dupResolution(g);
-  if(!res.remove.length) return;
-  if(!confirm(`「${g[0].name}」${fmt(g[0].amount)} の重複 ${res.remove.length}件を削除しますか？（${res.keep.length}件は残ります）`)) return;
-  applyDupRemoval(res.remove);
-}
-
-// 「同じ内容が複数件」を手動で1件に減らす（自動では消さない側）
-function trimSameFileGroup(idx){
-  const g=findDuplicates(currentYear,currentMonth).sameFile[idx];
-  if(!g||g.length<2) return;
-  if(!confirm(`「${g[0].name}」${fmt(g[0].amount)} を1件だけ残して ${g.length-1}件を削除します。\n\n明細に元から複数行ある場合（同じ店で同じ金額を同日に複数回決済）は、本物の取引が消えます。よろしいですか？`)) return;
-  applyDupRemoval(g.slice(1));
-}
-
-function resolveAllDups(){
-  const r=findDuplicates(currentYear,currentMonth);
-  if(!r.exact.length) return;
-  const remove=r.exact.flatMap(g=>dupResolution(g).remove);
-  if(!remove.length) return;
-  if(!confirm(`重複 ${remove.length}件を削除します。支出は ${fmt(r.excess)} 減ります。よろしいですか？`)) return;
-  applyDupRemoval(remove);
-}
-
-// 集計から外す（削除せず履歴には残す）
-function excludeTx(id){
-  const tx=transactions.find(t=>t.id===id);
-  if(!tx) return;
-  tx.excluded=true;
-  save(); renderAll(); runDupCheck();
-  showToast('集計から除外しました');
+    return d.getFullYear()===parseInt(y)&&d.getMonth()===parseInt(m)-1&&!t.cashParentId;
+  }).length;
+  if(!confirm(`${y}年${parseInt(m)}月のデータ ${count}件をすべて削除しますか？`)) return;
+  transactions=transactions.filter(t=>{
+    const d=new Date(t.date);
+    return !(d.getFullYear()===parseInt(y)&&d.getMonth()===parseInt(m)-1);
+  });
+  save(); renderAll();
 }
 
 function jumpToMonth(y,m){
@@ -1374,7 +1193,8 @@ function renderHistory(){
   const showExcluded=document.getElementById('filterExcluded')?.checked;
   // 通常取引＋除外済み（表示フラグONの場合）
   let txs=transactions.filter(tx=>{
-    if(!inMonth(tx,currentYear,currentMonth)) return false;
+    const d=new Date(tx.date);
+    if(d.getFullYear()!==currentYear||d.getMonth()!==currentMonth) return false;
     if(tx.cashParentId) return false;
     if(tx.excluded) return showExcluded;
     if(tx.tatekaePairId) return showExcluded; // 立替ペア済みも除外済みと同様に扱う
@@ -1388,10 +1208,6 @@ function renderHistory(){
   list.innerHTML=txs.map(tx=>{
     const d=new Date(tx.date);
     const ds=(d.getMonth()+1)+'/'+(d.getDate());
-    // カード明細は「利用日」と「計上月（請求月）」がずれるので、利用日の月が違うときだけ注記する
-    const billed=txYM(tx);
-    const billedNote=(billed.m!==d.getMonth()||billed.y!==d.getFullYear())
-      ? ` · ${billed.m+1}月請求` : '';
     const col=CAT_COLORS[tx.category]||'#888780';
     const sign=tx.type==='income'?'+':'-';
     const cls=tx.type==='income'?'inc':'exp';
@@ -1433,7 +1249,7 @@ function renderHistory(){
       <span class="tx-cat-dot" style="background:${col};flex-shrink:0"></span>
       <div class="tx-info" style="min-width:0">
         <div class="tx-name">${escHtml(tx.name)}${excludedBadge}${tatekaeKaishuBadge}</div>
-        <div class="tx-meta">${ds}${tx.source?' · '+tx.source:''}${billedNote}</div>
+        <div class="tx-meta">${ds}${tx.source?' · '+tx.source:''}</div>
       </div>
       <span class="tx-amount ${cls}">${sign}${fmt(effectiveAmt)}${isPartialKaishu?`<span style="font-size:10px;color:var(--text3);text-decoration:line-through;margin-left:3px">${fmt(tx.amount)}</span>`:''}</span>
       <button class="tx-del" onclick="deleteTx('${tx.id}')">×</button>
@@ -2240,83 +2056,9 @@ function detectSource(filename){
   const n=filename.toLowerCase();
   if(n.includes('paypay')||n.includes('ペイペイ')) return 'paypay';
   if(n.includes('yucho')||n.includes('ゆうちょ')||n.includes('郵')) return 'yucho';
-  // 楽天e-NAVIのCSVは enavi202607(8971).csv のようなファイル名で「楽天」が入らない
-  if(n.includes('rakuten')||n.includes('楽天')||n.includes('enavi')) return 'rakuten';
+  if(n.includes('rakuten')||n.includes('楽天')) return 'rakuten';
   if(n.includes('smbc')||n.includes('三井')||n.includes('vpass')) return 'smbc';
   return null;
-}
-
-// ==================== カード明細の請求月判定 ====================
-// カードCSVは「利用日」しか列に持たないが、ファイルは請求月（支払月）単位で配布される。
-// 例) enavi202607.csv = 6月利用分の7月請求。これを7月として計上するため、請求月を割り出す。
-// 優先順: ファイル名 → CSVヘッダー（楽天のみ）→ 利用日の翌月
-
-// ファイル名から請求年月を取る（enavi202607 / 202607 / 2026-07 / 2026年7月 など）
-function billingYMFromFilename(filename){
-  if(!filename) return null;
-  const n=filename.replace(/\.csv$/i,'');
-  let m=n.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月/);
-  if(m) return m[1]+'-'+String(m[2]).padStart(2,'0');
-  m=n.match(/(20\d{2})[-_\/\.]?(0[1-9]|1[0-2])(?!\d)/);
-  if(m) return m[1]+'-'+m[2];
-  return null;
-}
-
-// 楽天CSVのヘッダー「"7月支払金額"」から請求月を取る（年は明細の利用日から推定）
-function billingYMFromRakutenHeader(text){
-  const head=(text||'').split(/\r?\n/)[0]||'';
-  const h=head.match(/(\d{1,2})月支払金額/);
-  if(!h) return null;
-  const bm=parseInt(h[1],10);
-  const u=(text||'').match(/(20\d{2})[\/\-](\d{1,2})[\/\-]\d{1,2}/);
-  if(!u) return null;
-  let y=parseInt(u[1],10);
-  // 12月利用 → 翌年1月請求 の年またぎに対応
-  if(parseInt(u[2],10)===12&&bm===1) y+=1;
-  return y+'-'+String(bm).padStart(2,'0');
-}
-
-// このCSV全体の請求月。判定できなければ null（行ごとに「利用日の翌月」で補う）
-function resolveBillingYM(source,text,filename){
-  if(source!=='rakuten'&&source!=='smbc') return null;
-  return billingYMFromFilename(filename)
-    || (source==='rakuten' ? billingYMFromRakutenHeader(text) : null);
-}
-
-// 取込直後に、既に入っている取引と同じものが増えていないか調べて取り消す。
-// 同じ店・同じ金額の決済が同じ日に複数回あることは実際にある（例: KLINGAI 918円が2件）ので、
-// 「同じ内容が何件あるか」で比較し、既存で足りている分だけを取り消す。
-// 結果の件数は max(既存, 今回) になるので、同じCSVを2回入れても増えない。
-// 取り込んだ行に「どのCSVから来たか」を記録する。重複判定の決め手になる。
-function stampSourceFile(startIndex,filename){
-  if(!filename) return;
-  for(let i=startIndex;i<transactions.length;i++) transactions[i].file=filename;
-}
-
-function dedupeImported(startIndex){
-  const added=transactions.slice(startIndex);
-  if(!added.length) return 0;
-  const existing=transactions.slice(0,startIndex);
-  const have={};
-  existing.forEach(t=>{const k=dupKey(t);have[k]=(have[k]||0)+1;});
-  const nth={},keep=[];
-  let skipped=0;
-  added.forEach(t=>{
-    const k=dupKey(t);
-    nth[k]=(nth[k]||0)+1;
-    if((have[k]||0)>=nth[k]){skipped++;return;}
-    keep.push(t);
-  });
-  transactions=existing.concat(keep);
-  return skipped;
-}
-
-// 取込ログに「どの月に入れたか」を出す（カード明細のみ）
-function billingNote(source,text,filename){
-  if(source!=='rakuten'&&source!=='smbc') return '';
-  const ym=resolveBillingYM(source,text,filename);
-  if(ym) return ` → ${parseInt(ym.slice(5,7),10)}月請求分として計上`;
-  return ' → 利用日の翌月（請求月）に計上';
 }
 
 async function importBulk(event){
@@ -2333,18 +2075,13 @@ async function importBulk(event){
         log.innerHTML+=`⚠ ${file.name}：判別できませんでした（個別取込をお使いください）<br>`;
         continue;
       }
-      const before=transactions.length;
       let count=0;
       if(source==='paypay') count=parsePayPay(text);
       else if(source==='yucho') count=parseYucho(text);
-      else if(source==='rakuten') count=parseRakuten(text,file.name);
-      else if(source==='smbc') count=parseSMBC(text,file.name);
-      stampSourceFile(before,file.name);
-      const skipped=dedupeImported(before);
-      count=Math.max(0,count-skipped);
+      else if(source==='rakuten') count=parseRakuten(text);
+      else if(source==='smbc') count=parseSMBC(text);
       const names={paypay:'PayPay',yucho:'ゆうちょ',rakuten:'楽天カード',smbc:'三井住友カード'};
-      const dupNote=skipped?`<span style="color:var(--text3)">（取込済みの ${skipped}件はスキップ）</span>`:'';
-      log.innerHTML+=`✓ ${names[source]}（${file.name}）: ${count}件取込完了${billingNote(source,text,file.name)}${dupNote}<br>`;
+      log.innerHTML+=`✓ ${names[source]}（${file.name}）: ${count}件取込完了<br>`;
       totalCount+=count;
     }catch(e){
       log.innerHTML+=`✗ ${file.name}：読込エラー<br>`;
@@ -2354,13 +2091,13 @@ async function importBulk(event){
   log.innerHTML+=`<br>✅ 合計 ${totalCount}件を取込みました`;
   if(event && event.target) event.target.value='';
   if(totalCount>0){
-    // 計上月（カードは請求月）が最も新しいものへジャンプする
-    const latestKey = transactions
+    const latestTx = transactions
       .filter(t=>!t.excluded&&!t.cashParentId)
-      .map(txYMKey).sort().pop();
-    if(latestKey){
-      currentYear = parseInt(latestKey.slice(0,4),10);
-      currentMonth = parseInt(latestKey.slice(5,7),10)-1;
+      .sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+    if(latestTx){
+      const d = new Date(latestTx.date);
+      currentYear = d.getFullYear();
+      currentMonth = d.getMonth();
       updateMonthLabel();
     }
     renderAll();
@@ -2447,19 +2184,14 @@ function importCSV(event,source){
     const text=e.target.result;
     let count=0;
     try{
-      const before=transactions.length;
       if(source==='paypay') count=parsePayPay(text);
       else if(source==='yucho') count=parseYucho(text);
-      else if(source==='rakuten') count=parseRakuten(text,file.name);
-      else if(source==='smbc') count=parseSMBC(text,file.name);
-      stampSourceFile(before,file.name);
-      const skipped=dedupeImported(before);
-      count=Math.max(0,count-skipped);
+      else if(source==='rakuten') count=parseRakuten(text);
+      else if(source==='smbc') count=parseSMBC(text);
       save();renderAll();
       const log=document.getElementById('importLog');
       const names={paypay:'PayPay',yucho:'ゆうちょ',rakuten:'楽天カード',smbc:'三井住友カード'};
-      const dupNote=skipped?`（取込済みの ${skipped}件はスキップ）`:'';
-      log.innerHTML=`✓ ${names[source]}: ${count}件取込完了${billingNote(source,text,file.name)}${dupNote}<br>`+log.innerHTML;
+      log.innerHTML=`✓ ${names[source]}: ${count}件取込完了<br>`+log.innerHTML;
       // 概要タブに切り替え
       if(count>0){
         document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===0));
@@ -2560,10 +2292,8 @@ function parseYucho(text){
   }
   return count;
 }
-function parseRakuten(text,filename){
+function parseRakuten(text){
   // 列: 0=利用日, 1=利用店名, 4=利用金額
-  // 利用日は前月（例: 7月請求分のCSVは6月の利用日）なので、計上月は請求月を使う
-  const billing=resolveBillingYM('rakuten',text,filename);
   const lines=text.split(/\r?\n/).filter(l=>l.trim());
   let count=0;
   for(let i=1;i<lines.length;i++){
@@ -2573,27 +2303,21 @@ function parseRakuten(text,filename){
     const name=c[1]||'楽天カード取引';
     const amount=parseFloat((c[4]||'').replace(/[^0-9.]/g,''))||0;
     if(!amount||!date||shouldExclude(name)) continue;
-    const nd=normalizeDate(date);
-    transactions.push({id:makeId(),date:nd,ym:billing||nextMonthYM(nd),name,amount,type:'expense',category:detectCategory(name,'expense'),source:'楽天カード'});
+    transactions.push({id:makeId(),date:normalizeDate(date),name,amount,type:'expense',category:detectCategory(name,'expense'),source:'楽天カード'});
     count++;
   }
   return count;
 }
-function parseSMBC(text,filename){
-  // 楽天と同じく、利用日ではなく請求月（支払月）に計上する
-  const billing=resolveBillingYM('smbc',text,filename);
+function parseSMBC(text){
   const lines=text.split(/\r?\n/).filter(l=>l.trim());
-  // Vpassのcsvはヘッダー行が無いことがある。1行目が日付で始まるなら明細として扱う
-  const start=/^["']?\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(lines[0]||'')?0:1;
   let count=0;
-  for(let i=start;i<lines.length;i++){
+  for(let i=1;i<lines.length;i++){
     const c=csvSplit(lines[i]);
     if(c.length<3) continue;
     const date=c[0],name=c[1];
     const amount=Math.abs(parseFloat((c[2]||'').replace(/[^0-9.-]/g,''))||0);
     if(!amount||!date||shouldExclude(name)) continue;
-    const nd=normalizeDate(date);
-    transactions.push({id:makeId(),date:nd,ym:billing||nextMonthYM(nd),name,amount,type:'expense',category:detectCategory(name,'expense'),source:'三井住友カード'});
+    transactions.push({id:makeId(),date:normalizeDate(date),name,amount,type:'expense',category:detectCategory(name,'expense'),source:'三井住友カード'});
     count++;
   }
   return count;
@@ -2643,7 +2367,8 @@ function buildAllDataText(){
   // 月別収支
   const byMonth = {};
   agg.forEach(t=>{
-    const key = txYMKey(t);
+    const d = new Date(t.date);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     if(!byMonth[key]) byMonth[key] = {inc:0, exp:0};
     if(t.type==='income') byMonth[key].inc += t.amount; else byMonth[key].exp += t.amount;
   });
@@ -2809,67 +2534,22 @@ async function nativeShare(){
 }
 
 // ==================== PDF出力 ====================
-// mode='full'   … 収支サマリー＋カテゴリ別支出＋取引履歴（自分用）
-// mode='parent' … 収支サマリー＋カテゴリ別支出のみ（親に見せる用。個別の明細は出さない）
-function buildReportHTML(mode){
-  const isParent = mode==='parent';
+function exportPDF(){
   const txs=getMonthTx(currentYear,currentMonth);
-  // 画面の「概要」タブと同じ集計にする（支出は回収ぶんを引いた実質額）
   const income=txs.filter(t=>t.type==='income').reduce((a,t)=>a+t.amount,0);
-  const expense=txs.filter(t=>t.type==='expense').reduce((a,t)=>a+getEffectiveAmount(t),0);
+  const expense=txs.filter(t=>t.type==='expense').reduce((a,t)=>a+t.amount,0);
   const balance=income-expense;
-
   const bycat={};
-  txs.filter(t=>t.type==='expense').forEach(t=>{
-    const amt=getEffectiveAmount(t);
-    if(amt>0) bycat[t.category]=(bycat[t.category]||0)+amt;
-  });
-  const cats=Object.entries(bycat).sort((a,b)=>b[1]-a[1]);
-  const maxCat=cats.length?cats[0][1]:0;
-  const catRows=cats.map(([k,v])=>{
-    const pct=expense>0?(v/expense*100):0;
-    const col=CAT_COLORS[k]||'#888780';
-    const bar=`<div class="bar"><span style="width:${maxCat>0?(v/maxCat*100).toFixed(1):0}%;background:${col}"></span></div>`;
-    return `<tr><td><span class="dot" style="background:${col}"></span>${escHtml(k)}</td>
-      <td class="r">¥${Math.round(v).toLocaleString()}</td>
-      <td class="r">${pct.toFixed(1)}%</td>
-      <td class="bc">${bar}</td></tr>`;
-  }).join('');
-
-  const txRows=isParent?'':[...txs].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx=>{
+  txs.filter(t=>t.type==='expense').forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+t.amount;});
+  const catRows=Object.entries(bycat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${k}</td><td style="text-align:right">¥${Math.round(v).toLocaleString()}</td><td style="text-align:right">${expense>0?(v/expense*100).toFixed(1):'0'}%</td></tr>`).join('');
+  const txRows=txs.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx=>{
     const d=new Date(tx.date);
     const sign=tx.type==='income'?'+':'-';
     const col=tx.type==='income'?'#1D9E75':'#D85A30';
-    const amt=tx.type==='expense'?getEffectiveAmount(tx):tx.amount;
-    return `<tr><td>${(d.getMonth()+1)+'/'+(d.getDate())}</td><td>${escHtml(tx.name)}</td><td>${escHtml(tx.category)}</td><td>${escHtml(tx.source||'')}</td><td class="r" style="color:${col}">${sign}¥${Math.round(amt).toLocaleString()}</td></tr>`;
+    return `<tr><td>${(d.getMonth()+1)+'/'+(d.getDate())}</td><td>${tx.name}</td><td>${tx.category}</td><td>${tx.source||''}</td><td style="text-align:right;color:${col}">${sign}¥${Math.round(tx.amount).toLocaleString()}</td></tr>`;
   }).join('');
-
-  const title=`${currentYear}年${currentMonth+1}月 家計レポート${isParent?'（サマリー）':''}`;
-  const historySection=isParent?'':`<h2>取引履歴</h2>
-<table><thead><tr><th>日付</th><th>内容</th><th>カテゴリ</th><th>支払方法</th><th class="r">金額</th></tr></thead><tbody>${txRows||'<tr><td colspan="5" class="nd">データなし</td></tr>'}</tbody></table>`;
-  const footer=isParent?`<p class="note">※ このレポートは月ごとの合計とカテゴリ別の内訳をまとめたものです。個別の取引明細は含まれません。</p>`:'';
-
-  return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${title}</title><style>
-*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-body{font-family:'Hiragino Kaku Gothic Pro','Yu Gothic',sans-serif;padding:32px;color:#222;font-size:13px}
-h1{font-size:20px;margin-bottom:4px}
-h2{font-size:14px;margin:24px 0 8px;padding-bottom:4px;border-bottom:1px solid #ddd}
-table{width:100%;border-collapse:collapse;margin-bottom:16px}
-th{background:#f5f5f5;padding:6px 8px;text-align:left;font-size:11px;border:1px solid #ddd}
-td{padding:6px 8px;border:1px solid #eee;font-size:12px}
-.r{text-align:right}
-.nd{text-align:center;color:#888}
-.s{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0}
-.sc{background:#f9f9f9;border-radius:6px;padding:12px}
-.sl{font-size:10px;color:#666}
-.sv{font-size:${isParent?'20':'17'}px;font-weight:600;margin-top:2px}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
-.bc{width:34%;padding:6px 8px}
-.bar{background:#f0f0f0;border-radius:3px;height:8px;overflow:hidden}
-.bar span{display:block;height:100%;border-radius:3px}
-.note{margin-top:20px;padding-top:10px;border-top:1px solid #eee;color:#888;font-size:11px;line-height:1.7}
-</style></head><body>
-<h1>${title}</h1>
+  const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${currentYear}年${currentMonth+1}月 家計レポート</title><style>body{font-family:'Hiragino Kaku Gothic Pro',sans-serif;padding:32px;color:#222;font-size:13px}h1{font-size:20px;margin-bottom:4px}h2{font-size:14px;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid #ddd}table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#f5f5f5;padding:6px 8px;text-align:left;font-size:11px;border:1px solid #ddd}td{padding:5px 8px;border:1px solid #eee;font-size:12px}.s{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0}.sc{background:#f9f9f9;border-radius:6px;padding:10px}.sl{font-size:10px;color:#666}.sv{font-size:17px;font-weight:600}</style></head><body>
+<h1>${currentYear}年${currentMonth+1}月 家計レポート</h1>
 <p style="color:#888;font-size:11px">出力: ${new Date().toLocaleDateString('ja-JP')}</p>
 <h2>収支サマリー</h2>
 <div class="s">
@@ -2878,28 +2558,25 @@ td{padding:6px 8px;border:1px solid #eee;font-size:12px}
 <div class="sc"><div class="sl">収支</div><div class="sv" style="color:${balance>=0?'#1D9E75':'#D85A30'}">${balance>=0?'+':'-'}¥${Math.round(Math.abs(balance)).toLocaleString()}</div></div>
 </div>
 <h2>カテゴリ別支出</h2>
-<table><thead><tr><th>カテゴリ</th><th class="r">金額</th><th class="r">割合</th><th></th></tr></thead><tbody>${catRows||'<tr><td colspan="4" class="nd">データなし</td></tr>'}</tbody></table>
-${historySection}${footer}
+<table><thead><tr><th>カテゴリ</th><th style="text-align:right">金額</th><th style="text-align:right">割合</th></tr></thead><tbody>${catRows||'<tr><td colspan="3" style="text-align:center;color:#888">データなし</td></tr>'}</tbody></table>
+<h2>取引履歴</h2>
+<table><thead><tr><th>日付</th><th>内容</th><th>カテゴリ</th><th>支払方法</th><th style="text-align:right">金額</th></tr></thead><tbody>${txRows||'<tr><td colspan="5" style="text-align:center;color:#888">データなし</td></tr>'}</tbody></table>
 </body></html>`;
-}
-
-function openPrintWindow(html){
   const w=window.open('','_blank');
-  if(!w){ showToast('ポップアップがブロックされました。許可してください'); return; }
   w.document.write(html);
   w.document.close();
   w.onload=()=>w.print();
 }
 
-function exportPDF(){ openPrintWindow(buildReportHTML('full')); }
-function exportPDFParent(){ openPrintWindow(buildReportHTML('parent')); }
-
 
 // ==================== カラー・ルール設定 ====================
 const DEFAULT_CAT_COLORS = {
-  '食費':'#1D9E75','日用品':'#3266ad','交通費':'#EF9F27','外食':'#D85A30',
-  '娯楽':'#7F77DD','医療':'#D4537E','通信費':'#378ADD','光熱費':'#BA7517',
-  '衣服':'#5DCAA5','教育':'#AFA9EC','保険':'#F0997B','住居':'#97C459',
+  '食費':'#1D9E75','日用品':'#3266ad','外食':'#D85A30','カフェ':'#B5651D',
+  '飲み会代':'#C0392B','書籍購入代':'#7F77DD','衣服':'#5DCAA5','交通費':'#EF9F27',
+  '宿':'#8E6FBF','交際費':'#D4537E','バイク':'#2C7873',
+  '電気':'#F0B429','ガス':'#E8743B','水道':'#378ADD',
+  '保険代':'#F0997B','ジム代':'#97C459','アイパッド代':'#9B8B70','三井住友カード':'#5B8FA8',
+  'Apple':'#888780','美容':'#DDA0C4','手数料':'#A0A0A0',
   '立替':'#AFA9EC','その他支出':'#888780','給料':'#1D9E75','回収':'#5DCAA5','副業':'#3266ad','ボーナス':'#EF9F27',
   '利子':'#7F77DD','その他収入':'#888780'
 };
@@ -3098,18 +2775,13 @@ async function importBulkFiles(files){
         log.innerHTML += `⚠ ${file.name}：判別できませんでした<br>`;
         continue;
       }
-      const before = transactions.length;
       let count = 0;
       if(source==='paypay') count=parsePayPay(text);
       else if(source==='yucho') count=parseYucho(text);
-      else if(source==='rakuten') count=parseRakuten(text,file.name);
-      else if(source==='smbc') count=parseSMBC(text,file.name);
-      stampSourceFile(before,file.name);
-      const skipped=dedupeImported(before);
-      count=Math.max(0,count-skipped);
+      else if(source==='rakuten') count=parseRakuten(text);
+      else if(source==='smbc') count=parseSMBC(text);
       const names={paypay:'PayPay',yucho:'ゆうちょ',rakuten:'楽天カード',smbc:'三井住友カード'};
-      const dupNote=skipped?`<span style="color:var(--text3)">（取込済みの ${skipped}件はスキップ）</span>`:'';
-      log.innerHTML += `✓ ${names[source]}（${file.name}）: ${count}件${billingNote(source,text,file.name)}${dupNote}<br>`;
+      log.innerHTML += `✓ ${names[source]}（${file.name}）: ${count}件<br>`;
       totalCount += count;
     }catch(e){
       log.innerHTML += `✗ ${file.name}：読込エラー<br>`;
@@ -3119,13 +2791,13 @@ async function importBulkFiles(files){
   log.innerHTML += `<br>✅ 合計 ${totalCount}件を取込みました`;
   if(totalCount > 0){
     // 取込んだデータの最新月を特定して自動ジャンプ
-    // 計上月（カードは請求月）が最も新しいものへジャンプする
-    const latestKey = transactions
+    const latestTx = transactions
       .filter(t=>!t.excluded&&!t.cashParentId)
-      .map(txYMKey).sort().pop();
-    if(latestKey){
-      currentYear = parseInt(latestKey.slice(0,4),10);
-      currentMonth = parseInt(latestKey.slice(5,7),10)-1;
+      .sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+    if(latestTx){
+      const d = new Date(latestTx.date);
+      currentYear = d.getFullYear();
+      currentMonth = d.getMonth();
       updateMonthLabel();
     }
     renderAll();
@@ -3220,7 +2892,7 @@ async function loadFromSupabase(){
   try{
     const { data: txData } = await _supabase.from('transactions')
       .select('data').eq('user_id', currentUser.id).single();
-    if(txData?.data){ transactions = txData.data; migrateCardBillingMonth(); save(); }
+    if(txData?.data){ transactions = txData.data; save(); }
 
     const { data: stData } = await _supabase.from('user_settings')
       .select('data').eq('user_id', currentUser.id).single();
@@ -3296,8 +2968,6 @@ try {
   const stored = localStorage.getItem('kakeibo_tx');
   if(stored) transactions = JSON.parse(stored);
 } catch(e) { transactions = []; }
-// 取込済みのカード明細に計上月（請求月）を後付けする
-if(migrateCardBillingMonth()) save();
 
 const _savedColors = JSON.parse(localStorage.getItem('kakeibo_colors')||'{}')
 Object.assign(CAT_COLORS, _savedColors);
@@ -3453,16 +3123,11 @@ if('serviceWorker' in navigator && location.protocol !== 'file:'){
     return t;
   }
   function actualMonthTotals(y, m) {
-    var t = { in: 0, out: 0 };
-    // 家計簿本体（概要タブ）と同じ集計にそろえる。
-    // getMonthTx は計上月（カードは請求月）で振り分け、集計除外・現金の子取引・
-    // 回収済みの立替を除いてくれる。取引日で数えると本体と金額が食い違う。
-    try {
-      getMonthTx(y, m).forEach(function (x) {
-        if (x.type === 'income') t.in += num(x.amount);
-        else t.out += num(getEffectiveAmount(x));
-      });
-    } catch (e) { /* transactions 初期化前 */ }
+    var key = y + '-' + pad(m + 1), t = { in: 0, out: 0 };
+    txAll().forEach(function (x) {
+      if (String(x.date || '').slice(0, 7) !== key) return;
+      if (x.type === 'income') t.in += num(x.amount); else t.out += num(x.amount);
+    });
     return t;
   }
   function goalOf(key) { return P.goals[key] !== undefined ? P.goals[key] : 100000; }
