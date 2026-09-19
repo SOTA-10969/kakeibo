@@ -161,12 +161,12 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
   <div class="tab active" onclick="switchTab(0,this)">概要</div>
   <div class="tab" onclick="switchTab(1,this)">月次</div>
   <div class="tab" onclick="switchTab(2,this)">取込</div>
-  <div class="tab" onclick="switchTab(3,this)">予算</div>
+  <div class="tab" onclick="switchTab(3,this)">予算・予定</div>
   <div class="tab" onclick="switchTab(4,this)">AI評価</div>
   <div class="tab" onclick="switchTab(5,this)">PDF出力</div>
   <div class="tab" onclick="switchTab(6,this)">カテゴリ</div>
   <div class="tab" onclick="switchTab(7,this)">設定</div>
-  <div class="tab" onclick="switchTab(8,this)">予定</div>
+  <div class="tab" style="display:none" onclick="switchTab(8,this)">予定</div>
   <div class="tab" onclick="switchTab(9,this)">将来</div>
 </div>
 
@@ -248,14 +248,22 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 <!-- 予算 -->
 <div id="tab3" class="section">
   <div style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px">
-    <h3 style="font-size:14px;font-weight:600;margin-bottom:12px">月間予算の設定</h3>
-    <div id="budgetInputList"></div>
-    <button onclick="saveBudget()" style="width:100%;margin-top:12px;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:var(--text);color:var(--bg);border:none">保存</button>
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:4px">予算と実績</h3>
+    <p style="font-size:11px;color:var(--text2);margin-bottom:12px">立替は入れていない。差がマイナスなら使いすぎ</p>
+    <div id="budgetTable"></div>
   </div>
-  <div style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px">
-    <h3 style="font-size:14px;font-weight:600;margin-bottom:12px">今月の予算残高</h3>
-    <div id="budgetProgress"></div>
+  <div style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px">
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:12px">予定</h3>
+    <div id="planRoot"></div>
   </div>
+  <details style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px">
+    <summary style="font-size:14px;font-weight:600;cursor:pointer">予算の設定</summary>
+    <div style="margin-top:12px">
+      <div id="budgetInputList"></div>
+      <button onclick="saveBudget()" style="width:100%;margin-top:12px;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:var(--text);color:var(--bg);border:none">保存</button>
+      <div id="budgetProgress" style="display:none"></div>
+    </div>
+  </details>
 </div>
 
 <!-- AI評価 -->
@@ -471,7 +479,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 </style>
 
 <!-- 予定 -->
-<div id="tab8" class="section"><div id="planRoot"></div></div>
+<div id="tab8" class="section"></div>
 
 <!-- 将来 -->
 <div id="tab9" class="section"><div id="simRoot"></div></div>
@@ -870,7 +878,7 @@ function switchTab(i,el){
   document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===i));
   document.querySelectorAll('.section').forEach((p,j)=>p.classList.toggle('active',j===i));
   if(i===1) renderMonthly();
-  if(i===3) renderBudgetTab();
+  if(i===3){ renderBudgetTab(); planRender(); }
   if(i===6) renderCategoryManager();
   if(i===7) initSettingsTab();
   if(i===8) planRender();
@@ -944,6 +952,55 @@ function saveBudget(){
   alert('予算を保存しました');
 }
 
+function renderBudgetTable(){
+  const el=document.getElementById('budgetTable');
+  if(!el) return;
+  const budget=getBudget();
+  const txs=getMonthTx(currentYear,currentMonth);
+  const bycat={};
+  let income=0;
+  txs.forEach(t=>{
+    if(t.type==='income') income+=t.amount;
+    else bycat[t.category]=(bycat[t.category]||0)+t.amount;
+  });
+  const cats=CATS_EXP.filter(c=>!TATEKAE_CATS.includes(c))
+                     .filter(c=>(budget[c]||0)>0||(bycat[c]||0)>0);
+  let tb=0,ta=0;
+  const body=cats.map(c=>{
+    const b=budget[c]||0,a=bycat[c]||0,d=b-a;
+    tb+=b;ta+=a;
+    const col=(b>0&&d<0)?'#D85A30':'var(--text2)';
+    const dot=CAT_COLORS[c]||'#888780';
+    return '<tr style="border-bottom:0.5px solid var(--border)">'
+      +'<td style="padding:7px 0;font-size:13px"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+dot+';margin-right:6px"></span>'+c+'</td>'
+      +'<td style="padding:7px 0;text-align:right;font-size:13px;color:var(--text2)">'+(b?fmt(b):'—')+'</td>'
+      +'<td style="padding:7px 0;text-align:right;font-size:13px">'+(a?fmt(a):'—')+'</td>'
+      +'<td style="padding:7px 0;text-align:right;font-size:13px;color:'+col+'">'+(b?(d<0?'-':'')+fmt(d):'—')+'</td></tr>';
+  }).join('');
+  const rest=tb-ta;
+  const restCol=rest<0?'#D85A30':'#1D9E75';
+  el.innerHTML='<table style="width:100%;border-collapse:collapse">'
+    +'<thead><tr style="border-bottom:0.5px solid var(--border)">'
+    +'<th style="text-align:left;padding-bottom:7px;font-size:11px;color:var(--text2);font-weight:500">カテゴリ</th>'
+    +'<th style="text-align:right;padding-bottom:7px;font-size:11px;color:var(--text2);font-weight:500">予算</th>'
+    +'<th style="text-align:right;padding-bottom:7px;font-size:11px;color:var(--text2);font-weight:500">実績</th>'
+    +'<th style="text-align:right;padding-bottom:7px;font-size:11px;color:var(--text2);font-weight:500">差</th>'
+    +'</tr></thead><tbody>'+(body||'<tr><td colspan="4" style="padding:14px 0;text-align:center;font-size:12px;color:var(--text3)">予算も実績もまだありません</td></tr>')
+    +'</tbody><tfoot><tr style="border-top:1px solid var(--border)">'
+    +'<td style="padding:9px 0;font-size:13px;font-weight:600">支出 合計</td>'
+    +'<td style="padding:9px 0;text-align:right;font-size:13px;font-weight:600;color:var(--text2)">'+fmt(tb)+'</td>'
+    +'<td style="padding:9px 0;text-align:right;font-size:13px;font-weight:600">'+fmt(ta)+'</td>'
+    +'<td style="padding:9px 0;text-align:right;font-size:13px;font-weight:600;color:'+restCol+'">'+(rest<0?'-':'')+fmt(rest)+'</td>'
+    +'</tr></tfoot></table>'
+    +'<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border)">'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span style="color:var(--text2)">収入</span><span>'+fmt(income)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span style="color:var(--text2)">支出（実績）</span><span>'+fmt(ta)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:14px;font-weight:600;padding:7px 0 0;border-top:0.5px solid var(--border);margin-top:4px">'
+    +'<span>いまの収支</span><span style="color:'+((income-ta)<0?'#D85A30':'#1D9E75')+'">'+((income-ta)<0?'-':'')+fmt(income-ta)+'</span></div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:6px">予算どおりに使い切ると '+fmt(income-tb)+' 残る計算</div>'
+    +'</div>';
+}
+
 function renderBudgetTab(){
   const budget=getBudget();
   const txs=getMonthTx(currentYear,currentMonth);
@@ -967,6 +1024,7 @@ function renderBudgetTab(){
       </div>`;
     }).join('');
   }
+  renderBudgetTable();
   renderBudgetProgress();
 }
 
