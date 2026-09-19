@@ -161,7 +161,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
   <div class="tab active" onclick="switchTab(0,this)">概要</div>
   <div class="tab" onclick="switchTab(1,this)">月次</div>
   <div class="tab" onclick="switchTab(2,this)">取込</div>
-  <div class="tab" onclick="switchTab(3,this)">予算設定</div>
+  <div class="tab" style="display:none" onclick="switchTab(3,this)">予算設定</div>
   <div class="tab" onclick="switchTab(4,this)">AI評価</div>
   <div class="tab" onclick="switchTab(5,this)">PDF出力</div>
   <div class="tab" onclick="switchTab(6,this)">カテゴリ</div>
@@ -197,6 +197,14 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
   <div class="chart-box" style="margin-bottom:12px">
     <div class="chart-title">予算と実績</div>
     <div id="budgetTable"></div>
+    <details style="margin-top:12px;border-top:0.5px solid var(--border);padding-top:10px">
+      <summary style="font-size:12px;color:var(--text2);cursor:pointer">予算を決める・変える</summary>
+      <div style="margin-top:10px">
+        <div id="budgetInputList"></div>
+        <button onclick="saveBudget()" style="width:100%;margin-top:12px;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:var(--text);color:var(--bg);border:none">保存</button>
+        <div id="budgetProgress" style="display:none"></div>
+      </div>
+    </details>
   </div>
   <div class="chart-box" style="margin-bottom:12px">
     <div class="chart-title">予定</div>
@@ -254,15 +262,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 
 
 <!-- 予算 -->
-<div id="tab3" class="section">
-  <div style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px">
-    <h3 style="font-size:14px;font-weight:600;margin-bottom:4px">カテゴリごとの予算</h3>
-    <p style="font-size:11px;color:var(--text2);margin-bottom:12px">ここで決めた金額が、概要ページの「予算と実績」に出る</p>
-    <div id="budgetInputList"></div>
-    <button onclick="saveBudget()" style="width:100%;margin-top:12px;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:var(--text);color:var(--bg);border:none">保存</button>
-    <div id="budgetProgress" style="display:none"></div>
-  </div>
-</div>
+<div id="tab3" class="section"></div>
 
 <!-- AI評価 -->
 <div id="tab4" class="section">
@@ -722,9 +722,13 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 
 <script>
 // ==================== 定数 ====================
-const CATS_EXP=['食費','日用品','外食','カフェ','飲み会代','書籍購入代','衣服','交通費','宿','交際費','バイク','電気','ガス','水道','保険代','ジム代','アイパッド代','三井住友カード','Apple','美容','手数料','立替','その他支出'];
+const CATS_EXP=['食費','日用品','外食','カフェ','飲み会代','書籍購入代','衣服','交通費','宿','交際費','バイク','電気','ガス','水道','保険代','ジム代','アイパッド代','三井住友カード','Apple','美容','手数料','積立','立替','その他支出'];
 // 立替と回収は収支・円グラフに入れず、リストだけで見せる
 const TATEKAE_CATS=['立替','回収'];
+// 積立は「置き場所を変えただけ」なので支出に数えない（立替と同じく収支から外す）
+const NOT_EXPENSE=['立替','回収','積立'];
+// 毎月の貯蓄の目標。内訳は問わず、積立と手元に残った分の合計で見る
+const SAVE_TARGET=75000;
 const CATS_INC=['給料','副業','ボーナス','利子','回収','その他収入'];
 const CAT_COLORS={
   '食費':'#1D9E75','日用品':'#3266ad','外食':'#D85A30','カフェ':'#B5651D',
@@ -768,6 +772,8 @@ const CAT_RULES=[
   {kw:['apollostation','eneos','出光','idex','jr九州','全日空','エ-エヌエ-','suica','タイムズ','タクシ','高速','駐車','ガソリン','電車','定期券'],cat:'交通費'},
   // 宿（ネカフェ泊も）
   {kw:['自遊空間','快活','ホテル','hotel','旅館','ゲストハウス','カプセル'],cat:'宿'},
+  // 積立（支出ではない）
+  {kw:['楽天証券','投信積立'],cat:'積立'},
   // 手数料
   {kw:['手数料','再振替'],cat:'手数料'},
 ];
@@ -786,6 +792,13 @@ let transactions=JSON.parse(localStorage.getItem('kakeibo_tx')||'[]');
   localStorage.setItem('kakeibo_catmig_v13','1');
   if(changed) console.log('カテゴリを読み替えました: '+changed+'件');
 })();
+// 予算をスプレッドシートの値に合わせる（1回だけ）
+(function migrateBudget(){
+  if(localStorage.getItem('kakeibo_budgetmig_v14')) return;
+  localStorage.removeItem('kakeibo_budget');
+  localStorage.setItem('kakeibo_budgetmig_v14','1');
+  console.log('予算をスプレッドシートの値に入れ替えました');
+})();
 // 最後に表示していた月を復元（なければ最新データの月）
 const _savedMonth = JSON.parse(localStorage.getItem('kakeibo_current_month')||'null');
 let currentMonth = _savedMonth ? _savedMonth.month : new Date().getMonth();
@@ -801,7 +814,7 @@ function getMonthTx(y,m){
     if(tx.cashParentId) return false;
     if(tx.tatekaePairId) return false;
     // 立替と回収は収支に入れない（下の「立替」リストで見る）
-    if(TATEKAE_CATS.includes(tx.category)) return false;
+    if(NOT_EXPENSE.includes(tx.category)) return false;
     // 紐づけ済みの回収取引は除外（支出側で差額管理）
     if(tx.category==='回収'&&tx.kaishuParentId) return false;
     // 回収完了した支出は除外（差額0なので不要）
@@ -844,7 +857,7 @@ function getMonthTxWithCash(y,m){
   return transactions.filter(tx=>{
     if(tx.excluded) return false;
     // 立替と回収は円グラフ・予算に入れない
-    if(TATEKAE_CATS.includes(tx.category)) return false;
+    if(NOT_EXPENSE.includes(tx.category)) return false;
     const d=new Date(tx.date);
     if(d.getFullYear()!==y||d.getMonth()!==m) return false;
     // 現金引き出し親は子取引がある場合は除外し、子取引で計上
@@ -917,7 +930,7 @@ function renderAll(){
   renderCards();
   renderPieCharts();
   renderTatekaeList();
-  renderBudgetTable();
+  renderBudgetTab();
   if(typeof planRender==='function') planRender();
   renderHistory();
   populateCatFilter();
@@ -929,10 +942,12 @@ function renderAll(){
 
 // ==================== 予算 ====================
 const DEFAULT_BUDGET={
-  '食費':30000,'日用品':10000,'外食':20000,'カフェ':1000,'飲み会代':0,
-  '書籍購入代':5000,'衣服':0,'交通費':30000,'宿':0,'交際費':0,'バイク':0,
+  // スプレッドシート「2026年 予算表」10月の値。積立は支出ではないので入れない
+  '食費':20000,'日用品':5000,'外食':5000,'カフェ':1000,'飲み会代':10000,
+  '書籍購入代':5000,'衣服':0,'交通費':10000,'宿':0,'交際費':0,
+  'バイク':12000,
   '電気':4300,'ガス':4000,'水道':2100,
-  '保険代':10370,'ジム代':8780,'アイパッド代':4900,'三井住友カード':15000,
+  '保険代':10370,'ジム代':8780,'アイパッド代':4900,'三井住友カード':5500,
   'Apple':1860,'美容':3465,'手数料':500,'その他支出':0
 };
 
@@ -950,6 +965,33 @@ function saveBudget(){
   renderBudgetBar();
   renderBudgetProgress();
   alert('予算を保存しました');
+}
+
+function savingsBlock(left){
+  // 今月の積立（支出には数えていないので、別に拾う）
+  const invest=transactions.filter(t=>{
+    if(t.excluded) return false;
+    if(t.category!=='積立') return false;
+    const d=new Date(t.date);
+    return d.getFullYear()===currentYear&&d.getMonth()===currentMonth;
+  }).reduce((a,t)=>a+t.amount,0);
+  const saved=left+invest;
+  const pct=Math.max(0,Math.min(100,saved/SAVE_TARGET*100));
+  const done=saved>=SAVE_TARGET;
+  const col=done?'#1D9E75':(pct>=60?'#EF9F27':'#D85A30');
+  const rest=SAVE_TARGET-saved;
+  return '<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border)">'
+    +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px">'
+    +'<span style="font-size:13px;font-weight:600">今月たまった分</span>'
+    +'<span style="font-size:13px"><span style="font-weight:600;color:'+col+'">'+(saved<0?'-':'')+fmt(saved)+'</span>'
+    +'<span style="color:var(--text3);font-size:11px"> / '+fmt(SAVE_TARGET)+'</span></span></div>'
+    +'<div style="background:var(--bg3);border-radius:4px;height:8px;overflow:hidden">'
+    +'<div style="height:100%;width:'+pct+'%;background:'+col+';border-radius:4px;transition:width .3s"></div></div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:5px">'
+    +(done?'目標クリア。'+fmt(saved-SAVE_TARGET)+' 上ぶれ':'あと '+fmt(rest)+'')
+    +'（積立 '+fmt(invest)+' ＋ 手元に残った分 '+(left<0?'-':'')+fmt(left)+'）</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:3px">内訳は問わない。合計で 7.5万 とどけばよい</div>'
+    +'</div>';
 }
 
 function renderBudgetTable(){
@@ -998,7 +1040,8 @@ function renderBudgetTable(){
     +'<div style="display:flex;justify-content:space-between;font-size:14px;font-weight:600;padding:7px 0 0;border-top:0.5px solid var(--border);margin-top:4px">'
     +'<span>いまの収支</span><span style="color:'+((income-ta)<0?'#D85A30':'#1D9E75')+'">'+((income-ta)<0?'-':'')+fmt(income-ta)+'</span></div>'
     +'<div style="font-size:11px;color:var(--text3);margin-top:6px">予算どおりに使い切ると '+fmt(income-tb)+' 残る計算</div>'
-    +'</div>';
+    +'</div>'
+    +savingsBlock(income-ta);
 }
 
 function renderBudgetTab(){
