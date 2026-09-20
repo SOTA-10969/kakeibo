@@ -1,4 +1,4 @@
-const CACHE = 'kakeibo-v12';
+const CACHE = 'kakeibo-v13';
 const ASSETS = [
   './index.html',
   './manifest.json',

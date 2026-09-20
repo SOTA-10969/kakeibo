@@ -161,13 +161,13 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
   <div class="tab active" onclick="switchTab(0,this)">概要</div>
   <div class="tab" onclick="switchTab(1,this)">月次</div>
   <div class="tab" onclick="switchTab(2,this)">取込</div>
-  <div class="tab" style="display:none" onclick="switchTab(3,this)">予算設定</div>
-  <div class="tab" onclick="switchTab(4,this)">AI評価</div>
+  <div class="tab" onclick="switchTab(3,this)">資産</div>
+  <div class="tab" style="display:none" onclick="switchTab(4,this)">AI評価</div>
   <div class="tab" onclick="switchTab(5,this)">PDF出力</div>
   <div class="tab" onclick="switchTab(6,this)">カテゴリ</div>
   <div class="tab" onclick="switchTab(7,this)">設定</div>
   <div class="tab" style="display:none" onclick="switchTab(8,this)">予定</div>
-  <div class="tab" onclick="switchTab(9,this)">将来</div>
+  <div class="tab" style="display:none" onclick="switchTab(9,this)">将来</div>
 </div>
 
 <!-- 概要 -->
@@ -262,26 +262,23 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 
 
 <!-- 予算 -->
-<div id="tab3" class="section"></div>
-
-<!-- AI評価 -->
-<div id="tab4" class="section">
-  <div class="ai-card">
-    <h3>AIによる家計評価</h3>
-    <p>今月の収支データをもとにAIが分析してアドバイスします。</p>
-    <button class="primary-btn" onclick="runAI()">分析を実行</button>
-    <div class="ai-result" id="aiResult"></div>
+<div id="tab3" class="section">
+  <div style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px">
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:4px">いまの資産（起点）</h3>
+    <p style="font-size:11px;color:var(--text2);margin-bottom:12px">ここを実際の残高に直すと、下の予定が全部動く</p>
+    <div id="assetStartForm"></div>
+    <button onclick="saveAssetStart()" style="width:100%;margin-top:12px;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:var(--text);color:var(--bg);border:none">保存</button>
   </div>
-  <div class="ai-card" style="margin-top:12px">
-    <h3>全期間データをコピー（Claude等に相談）</h3>
-    <p>全期間の家計データを、Claudeなどのチャットに貼り付けられる形でまとめてコピーします。「この1年の家計どう？」とAIに相談したいときに使えます。</p>
-    <button class="primary-btn" onclick="copyAllData()" style="width:100%;margin-bottom:8px">全期間データをコピー</button>
-    <button onclick="shareAllData()" style="width:100%;padding:9px;border-radius:var(--radius);font-size:13px;cursor:pointer;background:none;border:0.5px solid var(--border);color:var(--text)">共有（LINE・メール等で送る）</button>
-    <div class="ai-result" id="copyDataResult" style="white-space:pre-wrap;font-size:11px;max-height:240px;overflow:auto;display:none"></div>
+  <div style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px">
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:4px">3月までの見通し</h3>
+    <p style="font-size:11px;color:var(--text2);margin-bottom:12px">予算どおりに使った場合の、月末の残高</p>
+    <div id="assetTable" style="overflow-x:auto"></div>
   </div>
 </div>
 
-<!-- PDF出力 -->
+<!-- AI評価 -->
+<div id="tab4" class="section"></div>
+
 <div id="tab5" class="section">
   <div class="pdf-card" style="margin-bottom:12px">
     <h3>画像として共有</h3>
@@ -480,7 +477,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 <div id="tab8" class="section"></div>
 
 <!-- 将来 -->
-<div id="tab9" class="section"><div id="simRoot"></div></div>
+<div id="tab9" class="section"></div>
 
 <button class="fab" onclick="openModal()">+</button>
 <div id="appVersion" style="position:fixed;bottom:2px;right:6px;font-size:9px;color:var(--text3);opacity:0.55;z-index:30;pointer-events:none">v7</div>
@@ -729,6 +726,8 @@ const TATEKAE_CATS=['立替','回収'];
 const NOT_EXPENSE=['立替','回収','積立'];
 // 毎月の貯蓄の目標。内訳は問わず、積立と手元に残った分の合計で見る
 const SAVE_TARGET=75000;
+// 毎月決まって出ていくもの。予算では管理せず、実績だけ見る
+const FIXED_CATS=['保険代','ジム代','アイパッド代','バイク','三井住友カード','Apple','美容'];
 const CATS_INC=['給料','副業','ボーナス','利子','回収','その他収入'];
 const CAT_COLORS={
   '食費':'#1D9E75','日用品':'#3266ad','外食':'#D85A30','カフェ':'#B5651D',
@@ -889,7 +888,7 @@ function switchTab(i,el){
   document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===i));
   document.querySelectorAll('.section').forEach((p,j)=>p.classList.toggle('active',j===i));
   if(i===1) renderMonthly();
-  if(i===3) renderBudgetTab();
+  if(i===3) renderAssets();
   if(i===6) renderCategoryManager();
   if(i===7) initSettingsTab();
   if(i===8) planRender();
@@ -943,29 +942,67 @@ function renderAll(){
 // ==================== 予算 ====================
 const MONTH_BUDGET={
   // スプレッドシート「2026年 予算表」の各タブそのまま。
-  // 楽天証券の積立だけは支出ではないので入れていない（収支からも外してある）
+  // 積立と固定費は入れていない（積立は支出ではない／固定費は毎月決まって出るので予算にしない）
   '2026-09':{
     '食費':20000,'日用品':10000,'外食':20000,'カフェ':1000,'飲み会代':10000,
     '書籍購入代':0,'衣服':0,'交通費':30000,
-    '電気':4300,'ガス':4000,'水道':2100,
-    '保険代':10370,'ジム代':8780,'アイパッド代':4900,'バイク':12000,
-    '三井住友カード':5500,'Apple':1860,'美容':3465
+    '電気':4300,'ガス':4000,'水道':2100
   },
   '2026-10':{
     '食費':20000,'日用品':5000,'外食':5000,'カフェ':1000,'飲み会代':10000,
     '書籍購入代':5000,'衣服':0,'交通費':10000,
-    '電気':4300,'ガス':4000,'水道':0,
-    '保険代':10370,'ジム代':8780,'アイパッド代':4900,'バイク':12000,
-    '三井住友カード':5500,'Apple':1860,'美容':3465
+    '電気':4300,'ガス':4000,'水道':0
   },
   '2026-11':{
     '食費':20000,'日用品':5000,'外食':5000,'カフェ':1000,'飲み会代':10000,
     '書籍購入代':5000,'衣服':0,'交通費':10000,
-    '電気':4300,'ガス':4000,'水道':2100,
-    '保険代':10370,'ジム代':8780,'アイパッド代':4900,'バイク':12000,
-    '三井住友カード':15000,'Apple':1860,'美容':3465
+    '電気':4300,'ガス':4000,'水道':2100
+  },
+  '2026-12':{
+    '食費':20000,'日用品':5000,'外食':5000,'カフェ':1000,'飲み会代':10000,
+    '書籍購入代':5000,'衣服':0,'交通費':10000,
+    '電気':4300,'ガス':4000,'水道':0
+  },
+  '2027-01':{
+    '食費':20000,'日用品':5000,'外食':5000,'カフェ':1000,'飲み会代':10000,
+    '書籍購入代':5000,'衣服':0,'交通費':10000,
+    '電気':4300,'ガス':4000,'水道':2100
+  },
+  '2027-02':{
+    '食費':20000,'日用品':5000,'外食':5000,'カフェ':1000,'飲み会代':10000,
+    '書籍購入代':5000,'衣服':0,'交通費':10000,
+    '電気':4300,'ガス':4000,'水道':0
+  },
+  '2027-03':{
+    '食費':20000,'日用品':5000,'外食':5000,'カフェ':1000,'飲み会代':10000,
+    '書籍購入代':5000,'衣服':0,'交通費':10000,
+    '電気':4300,'ガス':4000,'水道':2100
   }
 };
+// 収入・固定費・NISA積立の予定（資産タブで使う）
+const PLAN_MONTHS=['2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03'];
+const MONTH_INCOME={'2026-09':130000,'2026-10':180000,'2026-11':180000,'2026-12':180000,
+                    '2027-01':180000,'2027-02':180000,'2027-03':180000};
+const MONTH_FIXED={'2026-09':46875,'2026-10':46875,'2026-11':56375,'2026-12':46875,
+                   '2027-01':46875,'2027-02':46875,'2027-03':46875};
+const MONTH_NISA={'2026-09':9487,'2026-10':20000,'2026-11':20000,'2026-12':20000,
+                  '2027-01':20000,'2027-02':20000,'2027-03':0};
+// 起点。設定から変えられる
+const ASSET_DEFAULT={cash:25000,nisa:259487,goal:700000,target:75000};
+function getAssetStart(){
+  try{ const v=localStorage.getItem('kakeibo_asset_start'); if(v) return Object.assign({},ASSET_DEFAULT,JSON.parse(v)); }catch(e){}
+  return Object.assign({},ASSET_DEFAULT);
+}
+function saveAssetStart(){
+  const o={};
+  ['cash','nisa','goal','target'].forEach(k=>{
+    const el=document.getElementById('as_'+k);
+    if(el) o[k]=parseInt(String(el.value).replace(/[^0-9-]/g,''))||0;
+  });
+  try{ localStorage.setItem('kakeibo_asset_start',JSON.stringify(o)); }catch(e){}
+  renderAssets();
+  showToast('起点を保存しました');
+}
 // 表にない月はこれを使う（11月と同じ形）
 const DEFAULT_BUDGET=MONTH_BUDGET['2026-11'];
 
@@ -1022,6 +1059,62 @@ function savingsBlock(left){
     +'</div>';
 }
 
+function renderAssets(){
+  const st=getAssetStart();
+  // 起点の入力欄
+  const f=document.getElementById('assetStartForm');
+  if(f){
+    const fields=[['cash','ゆうちょの残高'],['nisa','NISA（いまの額）'],['goal','3月の目標'],['target','毎月ためたい額']];
+    f.innerHTML=fields.map(([k,label])=>
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+      +'<span style="font-size:13px;flex:1">'+label+'</span>'
+      +'<div style="position:relative;flex:1"><span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text2)">¥</span>'
+      +'<input id="as_'+k+'" type="number" value="'+st[k]+'" style="width:100%;padding:7px 8px 7px 20px;border:0.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text);font-size:13px"></div></div>'
+    ).join('');
+  }
+  const el=document.getElementById('assetTable');
+  if(!el) return;
+  let cash=st.cash, nisa=st.nisa;
+  const rows=[];
+  PLAN_MONTHS.forEach((k,idx)=>{
+    const b=MONTH_BUDGET[k]||{};
+    const varSum=Object.values(b).reduce((a,v)=>a+(v||0),0);
+    const exp=varSum+(MONTH_FIXED[k]||0);
+    const inc=MONTH_INCOME[k]||0;
+    const nis=MONTH_NISA[k]||0;
+    const rest=inc-exp-nis;
+    const saved=rest+nis;
+    if(idx>0){ cash+=rest; nisa+=nis; }
+    const label=k.slice(0,4)+'年'+Number(k.slice(5))+'月';
+    rows.push({label:label,saved:saved,diff:saved-st.target,cash:cash,nisa:nisa,total:cash+nisa,first:idx===0});
+  });
+  const last=rows[rows.length-1];
+  const gap=last.total-st.goal;
+  const td='padding:7px 6px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap';
+  el.innerHTML='<table style="width:100%;border-collapse:collapse;min-width:430px">'
+    +'<thead><tr style="border-bottom:0.5px solid var(--border)">'
+    +['月','ためる額','目標との差','ゆうちょ','NISA','総資産'].map((h,i)=>
+        '<th style="'+td+';color:var(--text2);font-weight:500;'+(i===0?'text-align:left':'')+'">'+h+'</th>').join('')
+    +'</tr></thead><tbody>'
+    +rows.map(r=>'<tr style="border-bottom:0.5px solid var(--border)'+(r.first?';opacity:.6':'')+'">'
+      +'<td style="'+td+';text-align:left">'+r.label+(r.first?'（いま）':'')+'</td>'
+      +'<td style="'+td+'">'+(r.first?'—':fmt(r.saved))+'</td>'
+      +'<td style="'+td+';color:'+(r.diff<0?'#D85A30':'#1D9E75')+'">'+(r.first?'—':(r.diff<0?'-':'+')+fmt(r.diff))+'</td>'
+      +'<td style="'+td+'">'+fmt(r.cash)+'</td>'
+      +'<td style="'+td+'">'+fmt(r.nisa)+'</td>'
+      +'<td style="'+td+';font-weight:600">'+fmt(r.total)+'</td></tr>').join('')
+    +'</tbody></table>'
+    +'<div style="margin-top:14px;padding-top:12px;border-top:0.5px solid var(--border)">'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span style="color:var(--text2)">3月末の総資産</span><span style="font-variant-numeric:tabular-nums">'+fmt(last.total)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span style="color:var(--text2)">目標</span><span style="font-variant-numeric:tabular-nums">'+fmt(st.goal)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:14px;font-weight:600;padding:7px 0 0;border-top:0.5px solid var(--border);margin-top:4px">'
+    +'<span>'+(gap>=0?'目標まで届く':'足りない分')+'</span>'
+    +'<span style="color:'+(gap>=0?'#1D9E75':'#D85A30')+';font-variant-numeric:tabular-nums">'+(gap<0?'-':'+')+fmt(gap)+'</span></div>'
+    +(gap<0?'<div style="font-size:11px;color:var(--text3);margin-top:6px">毎月あと '+fmt(Math.ceil(Math.abs(gap)/6))+' 予算を削れば届く</div>':'')
+    +'<div style="font-size:11px;color:var(--text3);margin-top:6px">立て替え（ブリーチの交通費など）は入れていない。出ていっても翌月末に戻るため</div>'
+    +'</div>';
+}
+
 function renderBudgetTable(){
   const el=document.getElementById('budgetTable');
   if(!el) return;
@@ -1033,21 +1126,42 @@ function renderBudgetTable(){
     if(t.type==='income') income+=t.amount;
     else bycat[t.category]=(bycat[t.category]||0)+t.amount;
   });
-  const cats=CATS_EXP.filter(c=>!TATEKAE_CATS.includes(c))
+  const cats=CATS_EXP.filter(c=>!NOT_EXPENSE.includes(c)&&!FIXED_CATS.includes(c))
                      .filter(c=>(budget[c]||0)>0||(bycat[c]||0)>0);
-  let tb=0,ta=0;
-  const body=cats.map(c=>{
-    const b=budget[c]||0,a=bycat[c]||0,d=b-a;
-    tb+=b;ta+=a;
+  const fixedCats=FIXED_CATS.filter(c=>(bycat[c]||0)>0);
+  let tb=0,ta=0,fa=0;
+  const row=(c,b,a)=>{
+    const d=b-a;
     const col=(b>0&&d<0)?'#D85A30':'var(--text2)';
     const dot=CAT_COLORS[c]||'#888780';
-    return '<tr style="border-bottom:0.5px solid var(--border)">'
-      +'<td style="padding:7px 0;font-size:13px"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+dot+';margin-right:6px"></span>'+c+'</td>'
-      +'<td style="padding:7px 0;text-align:right;font-size:13px;color:var(--text2)">'+(b?fmt(b):'—')+'</td>'
-      +'<td style="padding:7px 0;text-align:right;font-size:13px">'+(a?fmt(a):'—')+'</td>'
-      +'<td style="padding:7px 0;text-align:right;font-size:13px;color:'+col+'">'+(b?(d<0?'-':'')+fmt(d):'—')+'</td></tr>';
+    // 予算に対して何割使ったか
+    const ratio=b>0?a/b*100:0;
+    const w=Math.min(100,ratio);
+    const barCol=ratio>100?'#D85A30':ratio>=90?'#E8743B':ratio>=70?'#EF9F27':'#1D9E75';
+    const main='<tr'+(b>0?'':' style="border-bottom:0.5px solid var(--border)"')+'>'
+      +'<td style="padding:7px 0 '+(b>0?'3px':'7px')+';font-size:13px"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+dot+';margin-right:6px"></span>'+c+'</td>'
+      +'<td style="padding:7px 0 '+(b>0?'3px':'7px')+';text-align:right;font-size:13px;color:var(--text2);font-variant-numeric:tabular-nums">'+(b?fmt(b):'—')+'</td>'
+      +'<td style="padding:7px 0 '+(b>0?'3px':'7px')+';text-align:right;font-size:13px;font-variant-numeric:tabular-nums">'+(a?fmt(a):'—')+'</td>'
+      +'<td style="padding:7px 0 '+(b>0?'3px':'7px')+';text-align:right;font-size:13px;color:'+col+';font-variant-numeric:tabular-nums">'+(b?(d<0?'-':'')+fmt(d):'—')+'</td></tr>';
+    if(!b) return main;
+    const bar='<tr style="border-bottom:0.5px solid var(--border)"><td colspan="4" style="padding:0 0 8px">'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<div style="flex:1;background:var(--bg3);height:5px;border-radius:3px;overflow:hidden">'
+      +'<div style="height:100%;width:'+w+'%;background:'+barCol+';border-radius:3px;transition:width .3s"></div></div>'
+      +'<span style="font-size:10px;color:'+(ratio>100?'#D85A30':'var(--text3)')+';min-width:34px;text-align:right;font-variant-numeric:tabular-nums">'+Math.round(ratio)+'%</span>'
+      +'</div></td></tr>';
+    return main+bar;
+  };
+  const fixedBody=fixedCats.map(c=>{ fa+=bycat[c]||0; return row(c,0,bycat[c]||0); }).join('');
+  const fixedHead=fixedCats.length
+    ? '<tr><td colspan="4" style="padding:12px 0 5px;font-size:11px;color:var(--text3)">毎月決まって出るもの（予算では見ない）</td></tr>'
+    : '';
+  const body=cats.map(c=>{
+    const b=budget[c]||0,a=bycat[c]||0;
+    tb+=b;ta+=a;
+    return row(c,b,a);
   }).join('');
-  const rest=tb-ta;
+  const rest=tb-ta;  // 予算のある分だけで見た残り
   const restCol=rest<0?'#D85A30':'#1D9E75';
   el.innerHTML='<table style="width:100%;border-collapse:collapse">'
     +'<thead><tr style="border-bottom:0.5px solid var(--border)">'
@@ -1056,20 +1170,23 @@ function renderBudgetTable(){
     +'<th style="text-align:right;padding-bottom:7px;font-size:11px;color:var(--text2);font-weight:500">実績</th>'
     +'<th style="text-align:right;padding-bottom:7px;font-size:11px;color:var(--text2);font-weight:500">差</th>'
     +'</tr></thead><tbody>'+(body||'<tr><td colspan="4" style="padding:14px 0;text-align:center;font-size:12px;color:var(--text3)">予算も実績もまだありません</td></tr>')
-    +'</tbody><tfoot><tr style="border-top:1px solid var(--border)">'
+    +fixedHead+fixedBody
+    +'</tbody><tfoot>'
+    +(fixedCats.length?'<tr><td style="padding:7px 0;font-size:12px;color:var(--text2)">　固定費 小計</td><td></td><td style="padding:7px 0;text-align:right;font-size:12px;color:var(--text2)">'+fmt(fa)+'</td><td></td></tr>':'')
+    +'<tr style="border-top:1px solid var(--border)">'
     +'<td style="padding:9px 0;font-size:13px;font-weight:600">支出 合計</td>'
     +'<td style="padding:9px 0;text-align:right;font-size:13px;font-weight:600;color:var(--text2)">'+fmt(tb)+'</td>'
-    +'<td style="padding:9px 0;text-align:right;font-size:13px;font-weight:600">'+fmt(ta)+'</td>'
+    +'<td style="padding:9px 0;text-align:right;font-size:13px;font-weight:600">'+fmt(ta+fa)+'</td>'
     +'<td style="padding:9px 0;text-align:right;font-size:13px;font-weight:600;color:'+restCol+'">'+(rest<0?'-':'')+fmt(rest)+'</td>'
     +'</tr></tfoot></table>'
     +'<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border)">'
     +'<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span style="color:var(--text2)">収入</span><span>'+fmt(income)+'</span></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span style="color:var(--text2)">支出（実績）</span><span>'+fmt(ta)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span style="color:var(--text2)">支出（実績・固定費こみ）</span><span>'+fmt(ta+fa)+'</span></div>'
     +'<div style="display:flex;justify-content:space-between;font-size:14px;font-weight:600;padding:7px 0 0;border-top:0.5px solid var(--border);margin-top:4px">'
-    +'<span>いまの収支</span><span style="color:'+((income-ta)<0?'#D85A30':'#1D9E75')+'">'+((income-ta)<0?'-':'')+fmt(income-ta)+'</span></div>'
-    +'<div style="font-size:11px;color:var(--text3);margin-top:6px">予算どおりに使い切ると '+fmt(income-tb)+' 残る計算</div>'
+    +'<span>いまの収支</span><span style="color:'+((income-ta-fa)<0?'#D85A30':'#1D9E75')+'">'+((income-ta-fa)<0?'-':'')+fmt(income-ta-fa)+'</span></div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:6px">予算を使い切って固定費も払うと '+fmt(income-tb-fa)+' 残る計算</div>'
     +'</div>'
-    +savingsBlock(income-ta);
+    +savingsBlock(income-ta-fa);
 }
 
 function renderBudgetTab(){
@@ -1081,7 +1198,7 @@ function renderBudgetTab(){
   // 入力フォーム
   const inputEl=document.getElementById('budgetInputList');
   if(inputEl){
-    inputEl.innerHTML=CATS_EXP.map(cat=>{
+    inputEl.innerHTML=CATS_EXP.filter(c=>!FIXED_CATS.includes(c)&&!NOT_EXPENSE.includes(c)).map(cat=>{
       const spent=bycat[cat]||0;
       const b=budget[cat]||0;
       return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
