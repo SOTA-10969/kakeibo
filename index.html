@@ -988,7 +988,7 @@ const MONTH_FIXED={'2026-09':46875,'2026-10':46875,'2026-11':56375,'2026-12':468
 const MONTH_NISA={'2026-09':9487,'2026-10':20000,'2026-11':20000,'2026-12':20000,
                   '2027-01':20000,'2027-02':20000,'2027-03':0};
 // 起点。設定から変えられる
-const ASSET_DEFAULT={cash:25000,nisa:259487,goal:700000,target:75000};
+const ASSET_DEFAULT={cash:81143,nisa:245990,goal:700000,target:75000};
 function getAssetStart(){
   try{ const v=localStorage.getItem('kakeibo_asset_start'); if(v) return Object.assign({},ASSET_DEFAULT,JSON.parse(v)); }catch(e){}
   return Object.assign({},ASSET_DEFAULT);
@@ -1059,12 +1059,27 @@ function savingsBlock(left){
     +'</div>';
 }
 
+function monthSaved(y,m){
+  // その月に実際たまった額 = 収入 − 支出 ＋ 積立（立替は数えない）
+  let inc=0,exp=0,inv=0,cnt=0;
+  transactions.forEach(t=>{
+    if(t.excluded) return;
+    const d=new Date(t.date);
+    if(d.getFullYear()!==y||d.getMonth()!==m) return;
+    if(TATEKAE_CATS.includes(t.category)) return;
+    cnt++;
+    if(t.category==='積立'){ inv+=t.amount; return; }
+    if(t.type==='income') inc+=t.amount; else exp+=t.amount;
+  });
+  return {saved:inc-exp+inv, inv:inv, cnt:cnt};
+}
+
 function renderAssets(){
   const st=getAssetStart();
   // 起点の入力欄
   const f=document.getElementById('assetStartForm');
   if(f){
-    const fields=[['cash','ゆうちょの残高'],['nisa','NISA（いまの額）'],['goal','3月の目標'],['target','毎月ためたい額']];
+    const fields=[['cash','ゆうちょの残高（9月末）'],['nisa','NISAの評価額（9月末）'],['target','毎月ためたい額'],['goal','3月の目標']];
     f.innerHTML=fields.map(([k,label])=>
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
       +'<span style="font-size:13px;flex:1">'+label+'</span>'
@@ -1075,35 +1090,57 @@ function renderAssets(){
   const el=document.getElementById('assetTable');
   if(!el) return;
   let cash=st.cash, nisa=st.nisa;
+  const now=new Date();
+  const nowKey=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  let planSum=0, actSum=0;
   const rows=[];
   PLAN_MONTHS.forEach((k,idx)=>{
-    const b=MONTH_BUDGET[k]||{};
-    const varSum=Object.values(b).reduce((a,v)=>a+(v||0),0);
-    const exp=varSum+(MONTH_FIXED[k]||0);
-    const inc=MONTH_INCOME[k]||0;
+    const y=Number(k.slice(0,4)), m=Number(k.slice(5))-1;
     const nis=MONTH_NISA[k]||0;
-    const rest=inc-exp-nis;
-    const saved=rest+nis;
-    if(idx>0){ cash+=rest; nisa+=nis; }
+    // 予定：毎月ためたい額（9月は起点なので0）
+    const plan = idx===0 ? 0 : st.target;
+    // 実際：取引から計算
+    const a = monthSaved(y,m);
+    const past = k < nowKey, current = k === nowKey;
+    const hasAct = (past||current) && a.cnt>0;
+    if(idx>0){
+      cash += st.target - nis;   // 通帳に残す分
+      nisa += nis;
+    }
+    if(idx>0) planSum += plan;
+    if(hasAct) actSum += a.saved;
     const label=k.slice(0,4)+'年'+Number(k.slice(5))+'月';
-    rows.push({label:label,saved:saved,diff:saved-st.target,cash:cash,nisa:nisa,total:cash+nisa,first:idx===0});
+    rows.push({label:label, plan:plan, act:hasAct?a.saved:null, current:current,
+               cash:cash, nisa:nisa, total:cash+nisa, first:idx===0});
   });
   const last=rows[rows.length-1];
   const gap=last.total-st.goal;
   const td='padding:7px 6px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap';
-  el.innerHTML='<table style="width:100%;border-collapse:collapse;min-width:430px">'
+  el.innerHTML='<table style="width:100%;border-collapse:collapse;min-width:470px">'
     +'<thead><tr style="border-bottom:0.5px solid var(--border)">'
-    +['月','ためる額','目標との差','ゆうちょ','NISA','総資産'].map((h,i)=>
+    +['月','予定','実際','差','ゆうちょ','NISA','総資産'].map((h,i)=>
         '<th style="'+td+';color:var(--text2);font-weight:500;'+(i===0?'text-align:left':'')+'">'+h+'</th>').join('')
     +'</tr></thead><tbody>'
-    +rows.map(r=>'<tr style="border-bottom:0.5px solid var(--border)'+(r.first?';opacity:.6':'')+'">'
-      +'<td style="'+td+';text-align:left">'+r.label+(r.first?'（いま）':'')+'</td>'
-      +'<td style="'+td+'">'+(r.first?'—':fmt(r.saved))+'</td>'
-      +'<td style="'+td+';color:'+(r.diff<0?'#D85A30':'#1D9E75')+'">'+(r.first?'—':(r.diff<0?'-':'+')+fmt(r.diff))+'</td>'
-      +'<td style="'+td+'">'+fmt(r.cash)+'</td>'
-      +'<td style="'+td+'">'+fmt(r.nisa)+'</td>'
-      +'<td style="'+td+';font-weight:600">'+fmt(r.total)+'</td></tr>').join('')
+    +rows.map(r=>{
+      const d = (r.act===null) ? null : r.act - r.plan;
+      return '<tr style="border-bottom:0.5px solid var(--border)'+(r.first?';opacity:.55':'')+'">'
+      +'<td style="'+td+';text-align:left">'+r.label+(r.current?' ★':'')+'</td>'
+      +'<td style="'+td+';color:var(--text2)">'+(r.plan?fmt(r.plan):'—')+'</td>'
+      +'<td style="'+td+'">'+(r.act===null?'—':(r.act<0?'-':'')+fmt(r.act))+'</td>'
+      +'<td style="'+td+';color:'+(d===null?'var(--text3)':(d<0?'#D85A30':'#1D9E75'))+'">'
+        +(d===null?'—':(d<0?'-':'+')+fmt(d))+'</td>'
+      +'<td style="'+td+';color:var(--text2)">'+fmt(r.cash)+'</td>'
+      +'<td style="'+td+';color:var(--text2)">'+fmt(r.nisa)+'</td>'
+      +'<td style="'+td+';font-weight:600">'+fmt(r.total)+'</td></tr>';
+    }).join('')
     +'</tbody></table>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:8px">★は今月。月の途中なので、実際の額はこれから増えます</div>'
+    +(actSum!==0?'<div style="margin-top:12px;padding:10px 12px;background:var(--bg2);border-radius:var(--radius)">'
+      +'<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--text2)">ここまでの予定</span><span style="font-variant-numeric:tabular-nums">'+fmt(planSum)+'</span></div>'
+      +'<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--text2)">ここまでの実際</span><span style="font-variant-numeric:tabular-nums">'+(actSum<0?'-':'')+fmt(actSum)+'</span></div>'
+      +'<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;padding:6px 0 0;border-top:0.5px solid var(--border);margin-top:3px">'
+      +'<span>差</span><span style="color:'+((actSum-planSum)<0?'#D85A30':'#1D9E75')+';font-variant-numeric:tabular-nums">'
+      +((actSum-planSum)<0?'-':'+')+fmt(actSum-planSum)+'</span></div></div>':'')
     +'<div style="margin-top:14px;padding-top:12px;border-top:0.5px solid var(--border)">'
     +'<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span style="color:var(--text2)">3月末の総資産</span><span style="font-variant-numeric:tabular-nums">'+fmt(last.total)+'</span></div>'
     +'<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span style="color:var(--text2)">目標</span><span style="font-variant-numeric:tabular-nums">'+fmt(st.goal)+'</span></div>'
