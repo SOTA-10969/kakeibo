@@ -4014,6 +4014,8 @@ if('serviceWorker' in navigator && location.protocol !== 'file:'){
 <script>
 
 /* Monthly duplicate review. Never runs deletion automatically. */
+function inMonth(t,y,m){return String(t.date||'').slice(0,7)===y+'-'+String(m+1).padStart(2,'0');}
+function escHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function payPayManualPairs(){
   const isPayPay=t=>['paypay','ペイペイ','ぺいぺい'].includes((t.source||'').normalize('NFKC').toLowerCase().replace(/\s/g,''));
   const key=t=>JSON.stringify([t.date,Number(t.amount)]);
