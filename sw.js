@@ -1,4 +1,4 @@
-const CACHE = 'kakeibo-v13';
+const CACHE = 'kakeibo-duplicate-review-paypay-20261019';
 const ASSETS = [
   './index.html',
   './manifest.json',
