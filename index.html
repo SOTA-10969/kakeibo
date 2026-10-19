@@ -4034,11 +4034,21 @@ function renderPayPayManualReview(){
   const pairs=payPayManualPairs();
   document.getElementById('payPayManualResults').innerHTML='<p>'+currentYear+'年'+(currentMonth+1)+'月：'+pairs.length+'件の候補</p>'+pairs.map((p,i)=>'<label style="display:block;padding:8px;border-bottom:1px solid var(--border)"><input type="checkbox" data-paypay-pair="'+i+'"> '+escHtml(p.manual.date)+' / '+fmt(p.manual.amount)+'<br>削除候補（手動）：'+escHtml(p.manual.name)+'<br>残す（CSV）：'+escHtml(p.csv.name)+'</label>').join('')+'<p>同じ日・同じ金額を1対1で照合しています（収入・支出の区分は問いません）。別の買い物なら選ばないでください。</p><button type="button" onclick="removePayPayManualMatches()">選択した手動入力を削除（CSVは残す）</button>';
 }
+let dupPendingSignature='';
+function confirmDuplicateSelection(ids,boxId,handler){
+  const signature=JSON.stringify([...ids].sort());
+  if(dupPendingSignature===signature){dupPendingSignature='';return true;}
+  dupPendingSignature=signature;
+  const box=document.getElementById(boxId);
+  box.querySelector('[data-dup-confirm]')?.remove();
+  box.insertAdjacentHTML('beforeend','<div data-dup-confirm style="padding:12px;border:1px solid var(--red);margin-top:10px">'+ids.length+'件を削除し、残す取引は維持します。バックアップから元に戻せます。<button type="button" onclick="'+handler+'()">削除を確定する</button></div>');
+  return false;
+}
 function removePayPayManualMatches(){
   const pairs=payPayManualPairs();
   const selected=[...document.querySelectorAll('[data-paypay-pair]:checked')].map(e=>pairs[Number(e.dataset.paypayPair)]).filter(Boolean);
   if(!selected.length){alert('削除する手動入力を選んでください。');return;}
-  if(!confirm('選択した手動入力'+selected.length+'件を削除します。PayPayのCSV取引は残ります。よろしいですか？'))return;
+  if(!confirmDuplicateSelection(selected.map(p=>p.manual.id),'payPayManualResults','removePayPayManualMatches'))return;
   const ids=new Set(selected.map(p=>p.manual.id));
   const removed=transactions.filter(t=>ids.has(t.id));
   try{localStorage.setItem('kakeibo_duplicate_undo',JSON.stringify(removed));}
@@ -4068,7 +4078,7 @@ function removeReviewedDuplicates(){
   const selected=[...document.querySelectorAll('[data-dup-group]:checked')].map(e=>groups[Number(e.dataset.dupGroup)]).filter(Boolean);
   const remove=selected.flatMap(g=>g.slice(1));
   if(!remove.length){alert('削除する候補を選んでください。');return;}
-  if(!confirm(remove.length+'件の重複を削除し、各組は1件残します。よろしいですか？'))return;
+  if(!confirmDuplicateSelection(remove.map(t=>t.id),'monthlyDupResults','removeReviewedDuplicates'))return;
   const ids=new Set(remove.map(t=>t.id));
   const removed=transactions.filter(t=>ids.has(t.id)||(t.cashParentId&&ids.has(t.cashParentId)));
   try{localStorage.setItem('kakeibo_duplicate_undo',JSON.stringify(removed));}
