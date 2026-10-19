@@ -253,6 +253,14 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
   </div>
   <div class="import-log" id="importLog" style="margin-top:8px"></div>
 
+<section style="padding:14px;margin-top:16px;background:var(--bg);border:1px solid var(--border);border-radius:12px"><h3>重複チェック・削除</h3><p>表示中の月の同日・同名・同額・同じ口座の取引を確認します。</p><button type="button" onclick="renderDuplicateReview()">表示中の月の重複を確認</button> <button type="button" onclick="undoReviewedDuplicates()">直前の重複削除を元に戻す</button><div id="monthlyDupResults"></div></section>
+  <section style="padding:14px;margin-top:16px;background:var(--bg);border:1px solid var(--border);border-radius:12px">
+    <h3>PayPay：CSVと手動入力の重複確認</h3>
+    <p>同じ日・同額のPayPay取引を照合し、CSVを残して選択した手動入力だけ削除します。収入・支出の区分は問いません。</p>
+    <button type="button" onclick="renderPayPayManualReview()">表示中の月のPayPayを照合</button>
+    <button type="button" onclick="undoReviewedDuplicates()">直前の重複削除を元に戻す</button>
+    <div id="payPayManualResults"></div>
+  </section>
   <!-- 月別データ一覧 -->
   <div style="margin-top:20px">
     <div style="font-size:13px;font-weight:500;margin-bottom:8px">取込済みデータ</div>
@@ -2849,6 +2857,80 @@ function exportPDF(){
 <table><thead><tr><th>カテゴリ</th><th style="text-align:right">金額</th><th style="text-align:right">割合</th></tr></thead><tbody>${catRows||'<tr><td colspan="3" style="text-align:center;color:#888">データなし</td></tr>'}</tbody></table>
 <h2>取引履歴</h2>
 <table><thead><tr><th>日付</th><th>内容</th><th>カテゴリ</th><th>支払方法</th><th style="text-align:right">金額</th></tr></thead><tbody>${txRows||'<tr><td colspan="5" style="text-align:center;color:#888">データなし</td></tr>'}</tbody></table>
+<script>
+
+/* Monthly duplicate review. Never runs deletion automatically. */
+function payPayManualPairs(){
+  const isPayPay=t=>['paypay','ペイペイ','ぺいぺい'].includes((t.source||'').normalize('NFKC').toLowerCase().replace(/\s/g,''));
+  const key=t=>JSON.stringify([t.date,Number(t.amount)]);
+  const csv=new Map();
+  transactions.filter(t=>inMonth(t,currentYear,currentMonth)&&isPayPay(t)&&t.manual!==true&&!t.cashParentId&&!t.excluded).forEach(t=>{
+    const k=key(t);if(!csv.has(k))csv.set(k,[]);csv.get(k).push(t);
+  });
+  const pairs=[];
+  transactions.filter(t=>inMonth(t,currentYear,currentMonth)&&isPayPay(t)&&t.manual===true&&!t.cashParentId&&!t.excluded).forEach(t=>{
+    const candidates=csv.get(key(t));if(!candidates||!candidates.length)return;
+    const match=candidates.shift();pairs.push({manual:t,csv:match});
+  });
+  return pairs;
+}
+function renderPayPayManualReview(){
+  const pairs=payPayManualPairs();
+  document.getElementById('payPayManualResults').innerHTML='<p>'+currentYear+'年'+(currentMonth+1)+'月：'+pairs.length+'件の候補</p>'+pairs.map((p,i)=>'<label style="display:block;padding:8px;border-bottom:1px solid var(--border)"><input type="checkbox" data-paypay-pair="'+i+'"> '+escHtml(p.manual.date)+' / '+fmt(p.manual.amount)+'<br>削除候補（手動）：'+escHtml(p.manual.name)+'<br>残す（CSV）：'+escHtml(p.csv.name)+'</label>').join('')+'<p>同じ日・同じ金額を1対1で照合しています（収入・支出の区分は問いません）。別の買い物なら選ばないでください。</p><button type="button" onclick="removePayPayManualMatches()">選択した手動入力を削除（CSVは残す）</button>';
+}
+function removePayPayManualMatches(){
+  const pairs=payPayManualPairs();
+  const selected=[...document.querySelectorAll('[data-paypay-pair]:checked')].map(e=>pairs[Number(e.dataset.paypayPair)]).filter(Boolean);
+  if(!selected.length){alert('削除する手動入力を選んでください。');return;}
+  if(!confirm('選択した手動入力'+selected.length+'件を削除します。PayPayのCSV取引は残ります。よろしいですか？'))return;
+  const ids=new Set(selected.map(p=>p.manual.id));
+  const removed=transactions.filter(t=>ids.has(t.id));
+  try{localStorage.setItem('kakeibo_duplicate_undo',JSON.stringify(removed));}
+  catch(e){alert('バックアップを保存できなかったため、削除しませんでした。');return;}
+  transactions=transactions.filter(t=>!ids.has(t.id));
+  save();renderAll();renderPayPayManualReview();
+}
+function reviewMonthlyDuplicates(){
+  const groups=new Map();
+  transactions.filter(t=>inMonth(t,currentYear,currentMonth)&&!t.cashParentId).forEach(t=>{
+    const key=JSON.stringify([t.date,t.type,t.amount,(t.name||'').normalize('NFKC').replace(/\s/g,''),t.source||'']);
+    if(!groups.has(key)) groups.set(key,[]);
+    groups.get(key).push(t);
+  });
+  return [...groups.values()].filter(g=>g.length>1);
+}
+function renderDuplicateReview(){
+  const box=document.getElementById('monthlyDupResults');
+  const groups=reviewMonthlyDuplicates();
+  box.innerHTML='<p>'+currentYear+'年'+(currentMonth+1)+'月：'+groups.length+'組の候補（収入・集計除外済みを含む）</p>'+
+    groups.map((g,i)=>'<label style="display:block;padding:8px;border-bottom:1px solid var(--border)"><input type="checkbox" data-dup-group="'+i+'"> '+escHtml(g[0].date)+' '+escHtml(g[0].name)+' / '+escHtml(g[0].source||'手動')+' / '+fmt(g[0].amount)+' × '+g.length+'件 → 1件残す</label>').join('')+
+    '<p style="font-size:12px;margin:8px 0">同日に同額の本物の取引が複数ある場合は選ばないでください。削除前に自動バックアップを保存します。</p>'+
+    '<button type="button" onclick="removeReviewedDuplicates()">選択した重複だけ削除</button>';
+}
+function removeReviewedDuplicates(){
+  const groups=reviewMonthlyDuplicates();
+  const selected=[...document.querySelectorAll('[data-dup-group]:checked')].map(e=>groups[Number(e.dataset.dupGroup)]).filter(Boolean);
+  const remove=selected.flatMap(g=>g.slice(1));
+  if(!remove.length){alert('削除する候補を選んでください。');return;}
+  if(!confirm(remove.length+'件の重複を削除し、各組は1件残します。よろしいですか？'))return;
+  const ids=new Set(remove.map(t=>t.id));
+  const removed=transactions.filter(t=>ids.has(t.id)||(t.cashParentId&&ids.has(t.cashParentId)));
+  try{localStorage.setItem('kakeibo_duplicate_undo',JSON.stringify(removed));}
+  catch(e){alert('バックアップを保存できなかったため、削除しませんでした。');return;}
+  transactions=transactions.filter(t=>!ids.has(t.id)&&!(t.cashParentId&&ids.has(t.cashParentId)));
+  save();renderAll();renderDuplicateReview();
+}
+function undoReviewedDuplicates(){
+  let removed;
+  try{removed=JSON.parse(localStorage.getItem('kakeibo_duplicate_undo')||'[]');}
+  catch(e){alert('バックアップを読み取れません。');return;}
+  if(!removed.length){alert('戻せる重複削除はありません。');return;}
+  const ids=new Set(transactions.map(t=>t.id));
+  transactions=transactions.concat(removed.filter(t=>!ids.has(t.id)));
+  save();localStorage.removeItem('kakeibo_duplicate_undo');renderAll();renderDuplicateReview();renderPayPayManualReview();
+}
+
+</script>
 </body></html>`;
   const w=window.open('','_blank');
   w.document.write(html);
