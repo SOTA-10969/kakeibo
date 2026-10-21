@@ -29,31 +29,45 @@ window.previewParentPDF=function(){
  preview.innerHTML=pages(model());preview.hidden=false;
  document.getElementById('parentPDFStatus').textContent='カテゴリ別の収入・支出のみを表示しています。';
 };
-async function library(){
- if(window.jspdf?.jsPDF)return window.jspdf.jsPDF;
- await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js';s.onload=resolve;s.onerror=()=>reject(Error('PDF出力に必要なライブラリを読み込めませんでした。接続を確認してください。'));document.head.appendChild(s);});
- if(!window.jspdf?.jsPDF)throw Error('PDF出力の準備に失敗しました。');
- return window.jspdf.jsPDF;
+function rasterPDF(images){
+ const enc=new TextEncoder(),parts=[];let size=0;const offsets=[0];
+ const add=v=>{const b=typeof v==='string'?enc.encode(v):v;parts.push(b);size+=b.length;};
+ const obj=(id,body)=>{offsets[id]=size;add(id+' 0 obj\n');add(body);add('\nendobj\n');};
+ add('%PDF-1.4\n');
+ obj(1,'<< /Type /Catalog /Pages 2 0 R >>');
+ obj(2,'<< /Type /Pages /Count '+images.length+' /Kids ['+images.map((_,i)=>(3+i*3)+' 0 R').join(' ')+'] >>');
+ images.forEach((image,i)=>{
+  const page=3+i*3,content=page+1,img=page+2;
+  const w=Math.min(516,762*image.width/image.height),h=w*image.height/image.width;
+  const stream='q\n'+w+' 0 0 '+h+' '+((595.28-w)/2)+' '+(841.89-40-h)+' cm\n/Img Do\nQ';
+  obj(page,'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Img '+img+' 0 R >> >> /Contents '+content+' 0 R >>');
+  obj(content,'<< /Length '+enc.encode(stream).length+' >>\nstream\n'+stream+'\nendstream');
+  offsets[img]=size;add(img+' 0 obj\n<< /Type /XObject /Subtype /Image /Width '+image.width+' /Height '+image.height+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+image.bytes.length+' >>\nstream\n');add(image.bytes);add('\nendstream\nendobj\n');
+ });
+ const xref=size;add('xref\n0 '+offsets.length+'\n0000000000 65535 f \n');
+ for(let i=1;i<offsets.length;i++)add(String(offsets[i]).padStart(10,'0')+' 00000 n \n');
+ add('trailer\n<< /Size '+offsets.length+' /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF\n');
+ const bytes=new Uint8Array(size);let p=0;for(const b of parts){bytes.set(b,p);p+=b.length;}return bytes;
 }
 window.exportParentPDF=async function(){
  const status=document.getElementById('parentPDFStatus'),button=document.getElementById('parentPDFDownload');
  button.disabled=true;status.textContent='親提出用PDFを作成しています…';
  let host;
  try{
- const m=model(),PDF=await library();
+ const m=model();
  if(typeof html2canvas!=='function')throw Error('画像描画ライブラリを読み込めませんでした。');
  if(document.fonts?.ready)await document.fonts.ready;
  host=document.createElement('div');host.style.cssText='position:absolute;left:-12000px;top:0;width:760px;background:#fff;';host.innerHTML=pages(m);document.body.appendChild(host);
- const pdf=new PDF({orientation:'portrait',unit:'mm',format:'a4'});pdf.setProperties({title:m.year+'年'+m.month+'月 カテゴリ別収支',subject:'親提出用'});
- let i=0;
+ const images=[];
  for(const page of host.querySelectorAll('.parent-pdf-page')){
   const canvas=await html2canvas(page,{scale:2,backgroundColor:'#ffffff',logging:false});
-  if(i++)pdf.addPage();
-  const w=Math.min(182,269*canvas.width/canvas.height),h=w*canvas.height/canvas.width;
-  pdf.addImage(canvas.toDataURL('image/png'),'PNG',(210-w)/2,14,w,h);
+  const binary=atob(canvas.toDataURL('image/jpeg',0.98).split(',')[1]);
+  images.push({width:canvas.width,height:canvas.height,bytes:Uint8Array.from(binary,c=>c.charCodeAt(0))});
  }
  const filename=m.year+'-'+String(m.month).padStart(2,'0')+'_親提出用_カテゴリ別収支.pdf';
- pdf.save(filename);status.textContent=filename+' を保存しました。';
+ const url=URL.createObjectURL(new Blob([rasterPDF(images)],{type:'application/pdf'}));
+ const link=document.createElement('a');link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+ status.textContent=filename+' を保存しました。';
  }catch(e){status.textContent='出力できませんでした：'+e.message;}
  finally{host?.remove();button.disabled=false;}
 };
