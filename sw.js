@@ -1,7 +1,7 @@
-const CACHE = 'kakeibo-parent-category-pdf-20261021';
+const CACHE = 'kakeibo-parent-category-pdf-20261021b';
 const ASSETS = [
   './index.html',
-  './parent-category-pdf.js?v=20261021',
+  './parent-category-pdf.js?v=20261021b',
   './rakuten-reviewed-import.js?v=20261021',
   './cash-withdrawal-review.js?v=20261021',
   './manifest.json',
