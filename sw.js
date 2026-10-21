@@ -1,6 +1,7 @@
-const CACHE = 'kakeibo-cash-review-20261021';
+const CACHE = 'kakeibo-rakuten-reviewed-20261021';
 const ASSETS = [
   './index.html',
+  './rakuten-reviewed-import.js?v=20261021',
   './cash-withdrawal-review.js?v=20261021',
   './manifest.json',
   'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js'
