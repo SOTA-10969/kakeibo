@@ -1,8 +1,8 @@
-const CACHE = 'kakeibo-parent-category-pdf-20261024';
+const CACHE = 'kakeibo-parent-category-pdf-20261024b';
 const ASSETS = [
   './index.html',
-  './parent-category-pdf.js?v=20261024',
-  './rakuten-reviewed-import.js?v=20261021',
+  './parent-category-pdf.js?v=20261024b',
+  './rakuten-reviewed-import.js?v=20261024b',
   './cash-withdrawal-review.js?v=20261021',
   './manifest.json',
   'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js'

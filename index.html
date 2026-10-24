@@ -172,7 +172,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 
 <!-- 概要 -->
 <div id="tab0" class="section active">
-  <div class="notice">支払い月基準：カードは実際の口座引き落とし月で集計します。</div>
+  <div class="notice">支払い月基準（未引落の請求確定分を含む）：カードは請求書で確認した支払い月に計上します。</div>
   <div class="cards">
     <div class="card"><div class="card-label">収入</div><div class="card-value inc" id="totalIncome">¥0</div></div>
     <div class="card"><div class="card-label">支出</div><div class="card-value exp" id="totalExpense">¥0</div></div>
@@ -225,7 +225,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
     </div>
   </div>
   <div class="notice" style="display:flex;align-items:center;justify-content:space-between">
-    <span>カードは引き落とし月に計上。利用明細・PayPayチャージは二重計上しません。</span>
+    <span>カードは請求確定の支払い月に計上。口座引き落としと二重計上しません。</span>
     <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap">
       <input type="checkbox" id="filterExcluded" onchange="renderHistory()" style="width:14px;height:14px" checked>
       除外済みも表示
@@ -236,7 +236,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 
 <!-- 月次 -->
 <div id="tab1" class="section">
-  <div class="notice">支払い月基準：カードは実際の口座引き落とし月で集計します。</div>
+  <div class="notice">支払い月基準（未引落の請求確定分を含む）：カードは請求書で確認した支払い月に計上します。</div>
   <div class="monthly-box">
     <div class="chart-title">月別収支推移（過去6ヶ月）</div>
     <div class="monthly-wrap"><canvas id="monthlyChart"></canvas></div>
@@ -833,12 +833,52 @@ function getCardPaymentBreakdown(tx){
   if(rows.reduce((sum,r)=>sum+r.amount,0)!==Number(tx.amount))return null;
   return rows.map(r=>({category:r.category.trim(),amount:r.amount}));
 }
+function cardPaymentIssuer(tx){
+  const text=paymentMonthNormalize(isCardPaymentWithdrawal(tx)?tx.name:tx.source);
+  if(/楽天|ラクテン|RAKUTEN/.test(text))return 'rakuten';
+  if(/三井住友|SMBC/.test(text))return 'smbc';
+  return text;
+}
+function getCardInvoicePayments(tx){
+  if(!isCardUsageTransaction(tx)||tx.type!=='expense')return [];
+  const valid=row=>row&&row.confidence==='confirmed'&&/^\d{4}-(0[1-9]|1[0-2])$/.test(String(row.month||''))&&typeof row.amount==='number'&&Number.isSafeInteger(row.amount)&&row.amount>0;
+  if(Array.isArray(tx.paymentSchedule)){
+    const rows=tx.paymentSchedule.filter(valid),months=new Set();
+    // 同じ月の重複は請求額を判断できないため採用しない。
+    return rows.filter(row=>{if(months.has(row.month))return false;months.add(row.month);return rows.filter(r=>r.month===row.month).length===1;}).map(row=>({month:row.month,amount:row.amount,confidence:'confirmed'}));
+  }
+  const row={month:tx.paymentMonth,amount:tx.paymentAmount===undefined?tx.amount:tx.paymentAmount,confidence:tx.paymentMonthConfidence};
+  return valid(row)?[row]:[];
+}
+function getCardInvoicePayment(tx,month){return getCardInvoicePayments(tx).find(row=>row.month===month)||null;}
+function getConfirmedCardPaymentMonth(tx,month){
+  const rows=getCardInvoicePayments(tx);
+  if(month)return rows.some(row=>row.month===month)?month:null;
+  return rows.length===1?rows[0].month:null;
+}
 function getCardPaymentRows(y,m){
-  const month=String(y)+'-'+String(m+1).padStart(2,'0');
-  return transactions.filter(tx=>isCardPaymentWithdrawal(tx)&&String(tx.date).slice(0,7)===month).flatMap(tx=>{
-    const rows=getCardPaymentBreakdown(tx)||[{category:'カード支払（内訳未確認）',amount:Number(tx.amount)}];
-    return rows.map((row,i)=>({id:'card-payment:'+tx.id+':'+i,date:tx.date,name:'カード支払い',type:'expense',category:row.category,amount:row.amount,source:'口座引き落とし',parentPaymentWithdrawalId:tx.id,paymentMonthSynthetic:true}));
+  const month=String(y)+'-'+String(m+1).padStart(2,'0'),groups=new Map();
+  function group(tx){const issuer=cardPaymentIssuer(tx);if(!groups.has(issuer))groups.set(issuer,{bills:[],withdrawals:[]});return groups.get(issuer);}
+  transactions.forEach(tx=>{
+    if(isCardPaymentWithdrawal(tx)&&String(tx.date).slice(0,7)===month)group(tx).withdrawals.push(tx);
+    else {const payment=getCardInvoicePayment(tx,month);if(payment)group(tx).bills.push({tx,payment});}
   });
+  const result=[];
+  groups.forEach(({bills,withdrawals})=>{
+    const billAmount=bill=>bill.payment.amount;
+    const total=bills.reduce((sum,tx)=>sum+billAmount(tx),0);
+    // 引き落としがある場合は口座の実額を優先。完全照合できる明細だけ内訳に使う。
+    const matched=withdrawals.length===1&&bills.length>0&&total===Number(withdrawals[0].amount);
+    if(!withdrawals.length||matched){
+      bills.forEach(bill=>{const tx=bill.tx;result.push({id:'card-bill:'+tx.id+':'+month,date:matched?withdrawals[0].date:month+'-01',purchaseDate:tx.date,name:tx.name,type:'expense',category:tx.category||'未分類',amount:billAmount(bill),source:matched?'照合済み請求明細':'請求明細（未引落）',parentPaymentWithdrawalId:matched?withdrawals[0].id:undefined,paymentSourceTransactionId:tx.id,paymentMonth:month,paymentMonthSynthetic:true,paymentScheduled:!matched,paymentMonthScheduled:!matched});});
+    }else{
+      withdrawals.forEach(tx=>{
+        const rows=getCardPaymentBreakdown(tx)||[{category:'カード支払（内訳未確認）',amount:Number(tx.amount)}];
+        rows.forEach((row,i)=>result.push({id:'card-payment:'+tx.id+':'+i,date:tx.date,name:'カード支払い',type:'expense',category:row.category,amount:row.amount,source:'口座引き落とし',parentPaymentWithdrawalId:tx.id,paymentMonthSynthetic:true}));
+      });
+    }
+  });
+  return result;
 }
 function getMonthTx(y,m){
   return transactions.filter(tx=>{
@@ -1500,12 +1540,18 @@ function renderHistory(){
   const filterCat=document.getElementById('filterCat').value;
   const filterType=document.getElementById('filterType').value;
   const showExcluded=document.getElementById('filterExcluded')?.checked;
-  // 通常取引＋除外済み（表示フラグONの場合）
+  const selectedPaymentMonth=currentYear+'-'+String(currentMonth+1).padStart(2,'0');
+  const paymentRows=getCardPaymentRows(currentYear,currentMonth);
+  const representedBillIds=new Set(paymentRows.map(t=>t.paymentSourceTransactionId).filter(Boolean));
+  const representedWithdrawals=new Set(paymentRows.filter(t=>t.paymentSourceTransactionId).map(t=>t.parentPaymentWithdrawalId).filter(Boolean));
+  // カード明細は購入日を残し、確認済みの支払い月で表示する。
   let txs=transactions.filter(tx=>{
-    const d=new Date(tx.date);
-    if(d.getFullYear()!==currentYear||d.getMonth()!==currentMonth) return false;
+    const paymentMonth=getConfirmedCardPaymentMonth(tx,selectedPaymentMonth);
+    if(isCardUsageTransaction(tx)&&getCardInvoicePayments(tx).length&&!paymentMonth)return false;
+    const month=paymentMonth||String(tx.date).slice(0,7);
+    if(month!==currentYear+'-'+String(currentMonth+1).padStart(2,'0'))return false;
     if(tx.cashParentId) return false;
-    if(tx.excluded&&!isCardPaymentWithdrawal(tx)) return showExcluded;
+    if(tx.excluded&&!isCardPaymentWithdrawal(tx)&&!paymentMonth) return showExcluded;
     if(tx.tatekaePairId) return showExcluded; // 立替ペア済みも除外済みと同様に扱う
     return true;
   });
@@ -1521,15 +1567,17 @@ function renderHistory(){
     const sign=tx.type==='income'?'+':'-';
     const cls=tx.type==='income'?'inc':'exp';
     // 差額表示（部分回収の場合は実質額を表示）
-    const effectiveAmt = getEffectiveAmount(tx);
+    const confirmedMonth=getConfirmedCardPaymentMonth(tx,selectedPaymentMonth);
+    const effectiveAmt = confirmedMonth?getCardInvoicePayment(tx,confirmedMonth).amount:getEffectiveAmount(tx);
     const isPartialKaishu = tx.type==='expense' && effectiveAmt < tx.amount && effectiveAmt > 0;
     const cats=getAllCats(tx.type==='income'?'income':'expense');
     const catOptions=cats.map(c=>`<option value="${c}" ${c===tx.category?'selected':''}>${c}</option>`).join('')
       + `<option value="__new__">＋ 新しいカテゴリを作成</option>`;
     // 除外済みアイテムのスタイル
     const isPayment=isCardPaymentWithdrawal(tx),isUsage=isCardUsageTransaction(tx);
-    const excludedStyle=(tx.excluded&&!isPayment)||isUsage?'opacity:0.45;':'';
-    const paymentBadge=isPayment?'引き落とし月に計上':isUsage?'利用明細（集計対象外）':tx.excluded?'集計除外':'';
+    const excludedStyle=((tx.excluded&&!isPayment&&!confirmedMonth)||(isUsage&&!confirmedMonth))?'opacity:0.45;':'';
+    const paymentBadge=isPayment?(representedWithdrawals.has(tx.id)?'明細と照合済み（二重計上なし）':'引き落とし月に計上'):isUsage?(confirmedMonth?(representedBillIds.has(tx.id)?'支払い月に計上':'請求明細（合計は引き落とし額）'):'支払い月未設定（集計対象外）'):tx.excluded?'集計除外':'';
+    const displayDate=confirmedMonth?'購入'+ds+'・'+Number(confirmedMonth.slice(5))+'月支払い':ds;
     const excludedBadge=paymentBadge?'<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#88878022;color:var(--text3);margin-left:4px">'+paymentBadge+'</span>':'';
     // 立替判定
     const isTatekae = tx.category==='立替' && !tx.tatekaePairId && !tx.excluded;
@@ -1560,7 +1608,7 @@ function renderHistory(){
       <span class="tx-cat-dot" style="background:${col};flex-shrink:0"></span>
       <div class="tx-info" style="min-width:0">
         <div class="tx-name">${escHtml(tx.name)}${excludedBadge}${tatekaeKaishuBadge}</div>
-        <div class="tx-meta">${ds}${tx.source?' · '+tx.source:''}</div>
+        <div class="tx-meta">${displayDate}${tx.source?' · '+tx.source:''}</div>
       </div>
       <span class="tx-amount ${cls}">${sign}${fmt(effectiveAmt)}${isPartialKaishu?`<span style="font-size:10px;color:var(--text3);text-decoration:line-through;margin-left:3px">${fmt(tx.amount)}</span>`:''}</span>
       <button class="tx-del" onclick="deleteTx('${tx.id}')">×</button>
@@ -4113,8 +4161,8 @@ function undoReviewedDuplicates(){
 
 </script>
 <script src="./cash-withdrawal-review.js?v=20261021"></script>
-<script src="./rakuten-reviewed-import.js?v=20261021"></script>
-<script src="./parent-category-pdf.js?v=20261024"></script>
+<script src="./rakuten-reviewed-import.js?v=20261024b"></script>
+<script src="./parent-category-pdf.js?v=20261024b"></script>
 </body>
 </html>
 
