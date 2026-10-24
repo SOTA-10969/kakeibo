@@ -7,22 +7,30 @@ const source=t=>['楽天カード','楽天','rakuten'].map(norm).includes(norm(t
 function result(){return document.getElementById('rakutenPasteResults');}
 function analyze(){
  const text=document.getElementById('rakutenPasteText').value.replace(/^\uFEFF/,'');
- const lines=text.split(/\r?\n/).filter(l=>l.trim());const header=csvSplit(lines[0]||'');
- if(header[0]!=='利用日'||header[1]!=='利用店名・商品名'||!header.includes('当月請求額'))throw Error('楽天の利用明細CSVを、見出し行から貼り付けてください。');
- const bill=header.indexOf('当月請求額'),pay=header.indexOf('支払月');
+ const lines=text.split(/\r?\n/).filter(l=>l.trim());
+ const headerIndex=lines.findIndex(line=>{const fields=csvSplit(line);return fields[0]==='利用日'&&fields[1]==='利用店名・商品名';});
+ if(headerIndex<0)throw Error('楽天の利用明細CSVを、見出し行を含めて貼り付けてください。');
+ const header=csvSplit(lines[headerIndex]);
+ const monthBillIndex=header.findIndex(h=>/^\d{1,2}月支払金額$/.test(h));
+ const currentBillIndex=header.indexOf('当月請求額');
+ if(currentBillIndex<0&&monthBillIndex<0)throw Error('当月請求額または月別の支払金額がある楽天CSVを貼り付けてください。');
+ // 当月請求額がある場合は0円もそのまま尊重し、旧形式だけ月別欄を使う。
+ const bill=currentBillIndex>=0?currentBillIndex:monthBillIndex,pay=header.indexOf('支払月');
  const headerMonth=header.map(h=>h.match(/^(\d{1,2})月支払金額$/)).find(Boolean);
  const used=new Set(),inFile=new Set();const add=[],updates=[];let skipped=0,outside=0,cancel=false,ambiguous=0;
- for(const line of lines.slice(1)){
+ for(const line of lines.slice(headerIndex+1)){
   const c=csvSplit(line);if((c[0]||'').includes('キャンセル')){cancel=true;continue;}
-  if(cancel||!/^\d{4}\/\d{2}\/\d{2}$/.test(c[0]||''))continue;
+  if(cancel||!/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(c[0]||''))continue;
   const date=normalizeDate(c[0]);const charged=Number((c[bill]||'').replace(/,/g,''));
   if(!inMonth({date},currentYear,currentMonth)&&!(c[bill]!==''&&charged>0)){outside++;continue;}
   const gross=Number((c[4]||'').replace(/,/g,''));const total=Number((c[header.indexOf('支払総額')]||'').replace(/,/g,''));const amount=Number.isFinite(gross)&&gross>0?gross:total;
   if(!Number.isFinite(amount)||amount<=0||!((c[bill]!==''&&charged>0)||(/^\d{1,2}月以降$/.test(c[pay]||'')&&c[bill]===''))){skipped++;continue;}
   const name=c[1]||'';const key=JSON.stringify([date,norm(name),amount]);
-  if(inFile.has(key)){skipped++;continue;}inFile.add(key);
+  const seen=inFile.has(key);inFile.add(key);
   const matches=transactions.filter(t=>source(t)&&!t.cashParentId&&t.date===date&&Number(t.amount)===amount&&t.type==='expense');
   const exact=matches.find(t=>merchant(t.name)===merchant(name)&&!used.has(t.id));
+  // 同一CSV行でも既存の別IDに対応する請求は照合する。新規の重複追加は防ぐ。
+  if(seen&&!exact){skipped++;continue;}
   const explicit=(c[pay]||'').match(/^(\d{1,2})月$/);const month=Number(explicit?.[1]||headerMonth?.[1]);
   let metadata={paymentMonth:'',paymentAmount:null,paymentMonthConfidence:'unresolved'};
   const unresolved=/以降/.test(c[pay]||'');
