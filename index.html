@@ -1063,33 +1063,44 @@ function saveAssetStart(){
   renderAssets();
   showToast('起点を保存しました');
 }
-// 表にない月はこれを使う（11月と同じ形）
-const DEFAULT_BUDGET=MONTH_BUDGET['2026-11'];
-
+// 各月の予算は独立。未設定の月に別の月の予算を流用しない。
 function budgetKey(y,m){
   y=(y===undefined)?currentYear:y; m=(m===undefined)?currentMonth:m;
   return y+'-'+String(m+1).padStart(2,'0');
 }
-
-function getBudget(){
-  const k=budgetKey();
-  // 自分で保存した月の予算があればそれ、なければ表の値
-  const mine=localStorage.getItem('kakeibo_budget_'+k);
-  if(mine) return JSON.parse(mine);
-  return Object.assign({}, MONTH_BUDGET[k]||DEFAULT_BUDGET);
+function validateMonthlyBudget(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  const entries=Object.entries(value);
+  if(entries.some(([category,amount])=>!category.trim()||typeof amount!=='number'||!Number.isFinite(amount)||amount<0))return null;
+  return Object.fromEntries(entries);
 }
-
+function getMonthlyBudgetState(y,m){
+  const key=budgetKey(y,m);
+  try{
+    const raw=localStorage.getItem('kakeibo_budget_'+key);
+    if(raw!==null){const saved=validateMonthlyBudget(JSON.parse(raw));if(saved!==null)return {key,source:'saved',budget:saved};}
+  }catch(e){}
+  const preset=validateMonthlyBudget(MONTH_BUDGET[key]);
+  return {key,source:preset===null?'unset':'preset',budget:preset||{}};
+}
+function getBudget(y,m){return getMonthlyBudgetState(y,m).budget;}
 function saveBudget(){
-  const budget={};
-  document.querySelectorAll('.budget-input').forEach(el=>{
-    const val=parseInt(el.value.replace(/[^0-9]/g,''))||0;
-    if(val>0) budget[el.dataset.cat]=val;
+  const form=document.getElementById('budgetInputList'),key=budgetKey();
+  if(!form||form.dataset.budgetMonth!==key){
+    renderBudgetTab();alert('表示月が変わりました。この月の予算を確認して、もう一度保存してください。');return;
+  }
+  const budget={};let invalid=false;
+  form.querySelectorAll('.budget-input').forEach(el=>{
+    const val=el.value.trim()===''?0:Number(el.value);
+    if(!Number.isFinite(val)||val<0){invalid=true;return;}
+    if(val>0)budget[el.dataset.cat]=val;
   });
-  localStorage.setItem('kakeibo_budget_'+budgetKey(),JSON.stringify(budget));
-  renderBudgetBar();
-  renderBudgetTable();
-  renderBudgetProgress();
-  alert(budgetKey()+' の予算を保存しました');
+  if(invalid){alert('予算には0以上の金額を入力してください。');return;}
+  try{localStorage.setItem('kakeibo_budget_'+key,JSON.stringify(budget));}
+  catch(e){alert('予算を保存できませんでした。もう一度お試しください。');return;}
+  if(typeof scheduleMonthlyBudgetSync==='function')scheduleMonthlyBudgetSync();
+  renderBudgetBar();renderBudgetTab();
+  alert(key+' の予算を保存しました。他の月の予算は変更しません。');
 }
 
 function savingsBlock(left){
@@ -1288,7 +1299,8 @@ function renderBudgetTable(){
 }
 
 function renderBudgetTab(){
-  const budget=getBudget();
+  const state=getMonthlyBudgetState();
+  const budget=state.budget;
   const txs=getMonthTx(currentYear,currentMonth);
   const bycat={};
   txs.filter(t=>t.type==='expense').forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+getEffectiveAmount(t);});
@@ -1296,6 +1308,7 @@ function renderBudgetTab(){
   // 入力フォーム
   const inputEl=document.getElementById('budgetInputList');
   if(inputEl){
+    inputEl.dataset.budgetMonth=state.key;
     inputEl.innerHTML=CATS_EXP.filter(c=>!FIXED_CATS.includes(c)&&!NOT_EXPENSE.includes(c)).map(cat=>{
       const spent=bycat[cat]||0;
       const b=budget[cat]||0;
@@ -1312,7 +1325,7 @@ function renderBudgetTab(){
     inputEl.insertAdjacentHTML('afterbegin',
       '<div style="font-size:11px;color:var(--text2);margin-bottom:10px">'
       +currentYear+'年'+(currentMonth+1)+'月の予算'
-      +(localStorage.getItem('kakeibo_budget_'+budgetKey())?'（自分で変えた分）':'（予算表のまま）')
+      +(state.source==='saved'?'（この月に保存済み）':state.source==='preset'?'（この月の予算表）':'は未設定です')
       +'</div>');
   }
   renderBudgetTable();
@@ -1324,7 +1337,7 @@ function renderBudgetBar(){
   if(!el) return;
   const budget=getBudget();
   const totalBudget=Object.values(budget).reduce((a,b)=>a+b,0);
-  if(!totalBudget){el.innerHTML='';return;}
+  if(!totalBudget){const state=getMonthlyBudgetState();el.innerHTML='<div class="notice">'+currentYear+'年'+(currentMonth+1)+'月の予算'+(state.source==='unset'?'は未設定です':'は0円に設定されています')+'。下の「予算を決める・変える」からカテゴリ別に設定できます。</div>';return;}
   const txs=getMonthTx(currentYear,currentMonth);
   const spent=txs.filter(t=>t.type==='expense').reduce((a,t)=>a+getEffectiveAmount(t),0);
   const pct=Math.min(100,spent/totalBudget*100);
@@ -1332,7 +1345,7 @@ function renderBudgetBar(){
   const color=pct>=90?'#D85A30':pct>=70?'#EF9F27':'#1D9E75';
   el.innerHTML=`<div style="background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:12px 14px;margin-bottom:10px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <span style="font-size:12px;font-weight:500">今月の予算</span>
+      <span style="font-size:12px;font-weight:500">${currentYear}年${currentMonth+1}月の予算</span>
       <span style="font-size:12px;color:${over?'#D85A30':'var(--text2)'}">
         ${fmt(spent)} / ${fmt(totalBudget)}
         ${over?'<span style="color:#D85A30;font-weight:600"> 超過！</span>':''}
@@ -1379,7 +1392,7 @@ function renderBudgetProgress(){
   });
 
   if(!rows.length){
-    el.innerHTML='<div style="text-align:center;padding:20px;font-size:13px;color:var(--text3)">予算が設定されていません<br>予算タブで設定してください</div>';
+    el.innerHTML='<div style="text-align:center;padding:20px;font-size:13px;color:var(--text3)">'+currentYear+'年'+(currentMonth+1)+'月の予算'+(getMonthlyBudgetState().source==='unset'?'は未設定です':'は0円に設定されています')+'<br>カテゴリ別に設定してください</div>';
     return;
   }
   el.innerHTML=rows.join('');
@@ -3218,17 +3231,52 @@ function updateUserUI(user){
   document.getElementById('userMenuEmail').textContent = user.email||'';
 }
 
+function collectMonthlyBudgets(){
+  const months={};
+  for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i),match=/^kakeibo_budget_(\d{4}-(?:0[1-9]|1[0-2]))$/.exec(key||'');
+    if(!match)continue;
+    try{
+      const budget=validateMonthlyBudget(JSON.parse(localStorage.getItem(key)));
+      if(!budget)continue;
+      const updated=Number(localStorage.getItem('kakeibo_budget_updated_at_'+match[1])||0);
+      months[match[1]]={budget,updated_at:Number.isFinite(updated)&&updated>=0?updated:0};
+    }catch(e){}
+  }
+  return months;
+}
+function restoreMonthlyBudgets(months){
+  if(!months||typeof months!=='object'||Array.isArray(months))return;
+  Object.entries(months).forEach(([month,entry])=>{
+    if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||!entry||typeof entry!=='object')return;
+    const budget=validateMonthlyBudget(entry.budget);
+    const updated=Number(entry.updated_at||0);
+    if(!budget||!Number.isFinite(updated)||updated<0)return;
+    const key='kakeibo_budget_'+month;
+    let mine=null;try{mine=validateMonthlyBudget(JSON.parse(localStorage.getItem(key)));}catch(e){}
+    const localUpdated=Number(localStorage.getItem('kakeibo_budget_updated_at_'+month)||0);
+    if(mine&&Number.isFinite(localUpdated)&&localUpdated>=updated)return;
+    localStorage.setItem(key,JSON.stringify(budget));
+    localStorage.setItem('kakeibo_budget_updated_at_'+month,String(updated));
+  });
+}
+function scheduleMonthlyBudgetSync(){
+  localStorage.setItem('kakeibo_budget_updated_at_'+budgetKey(),String(Date.now()));
+  clearTimeout(syncTimer);syncTimer=setTimeout(syncToSupabase,500);
+}
 async function syncToSupabase(){
   if(!currentUser) return;
   const el = document.getElementById('syncStatus');
   if(el) el.textContent='同期中...';
   try{
-    await _supabase.from('transactions').upsert({
+    const txResult=await _supabase.from('transactions').upsert({
       id: currentUser.id, user_id: currentUser.id,
       data: transactions, updated_at: new Date().toISOString()
     });
+    if(txResult.error)throw txResult.error;
     const settings = {
       budget: JSON.parse(localStorage.getItem('kakeibo_budget')||'{}'),
+      monthly_budgets: collectMonthlyBudgets(),
       colors: JSON.parse(localStorage.getItem('kakeibo_colors')||'{}'),
       rules: JSON.parse(localStorage.getItem('kakeibo_rules')||'[]'),
       custom_cats: JSON.parse(localStorage.getItem('kakeibo_custom_cats')||'[]'),
@@ -3236,9 +3284,10 @@ async function syncToSupabase(){
       current_month: JSON.parse(localStorage.getItem('kakeibo_current_month')||'null'),
       plan: JSON.parse(localStorage.getItem('kakeibo_plan')||'null'),
     };
-    await _supabase.from('user_settings').upsert({
+    const settingsResult=await _supabase.from('user_settings').upsert({
       user_id: currentUser.id, data: settings, updated_at: new Date().toISOString()
     });
+    if(settingsResult.error)throw settingsResult.error;
     if(el) el.textContent='同期済み ✓';
   }catch(e){
     if(el) el.textContent='同期失敗';
@@ -3251,13 +3300,14 @@ async function loadFromSupabase(){
   try{
     const { data: txData } = await _supabase.from('transactions')
       .select('data').eq('user_id', currentUser.id).single();
-    if(txData?.data){ transactions = txData.data; save(); }
+    if(txData?.data){ transactions = txData.data; localStorage.setItem('kakeibo_tx',JSON.stringify(transactions)); }
 
     const { data: stData } = await _supabase.from('user_settings')
       .select('data').eq('user_id', currentUser.id).single();
     if(stData?.data){
       const s = stData.data;
       if(s.budget) localStorage.setItem('kakeibo_budget', JSON.stringify(s.budget));
+      restoreMonthlyBudgets(s.monthly_budgets);
       if(s.colors){ localStorage.setItem('kakeibo_colors', JSON.stringify(s.colors)); Object.assign(CAT_COLORS, s.colors); }
       if(s.rules) localStorage.setItem('kakeibo_rules', JSON.stringify(s.rules));
       if(s.custom_cats) localStorage.setItem('kakeibo_custom_cats', JSON.stringify(s.custom_cats));

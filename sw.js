@@ -1,4 +1,4 @@
-const CACHE = 'kakeibo-parent-category-pdf-20261024c';
+const CACHE = 'kakeibo-monthly-budget-20261024';
 const ASSETS = [
   './index.html',
   './parent-category-pdf.js?v=20261024b',
@@ -55,6 +55,7 @@ self.addEventListener('fetch', e => {
     })
   );
 });
+
 
 
 
