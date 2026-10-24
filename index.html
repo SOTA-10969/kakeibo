@@ -172,6 +172,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 
 <!-- 概要 -->
 <div id="tab0" class="section active">
+  <div class="notice">支払い月基準：カードは実際の口座引き落とし月で集計します。</div>
   <div class="cards">
     <div class="card"><div class="card-label">収入</div><div class="card-value inc" id="totalIncome">¥0</div></div>
     <div class="card"><div class="card-label">支出</div><div class="card-value exp" id="totalExpense">¥0</div></div>
@@ -224,7 +225,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
     </div>
   </div>
   <div class="notice" style="display:flex;align-items:center;justify-content:space-between">
-    <span>※カード引き落とし・PayPayチャージは集計除外済み</span>
+    <span>カードは引き落とし月に計上。利用明細・PayPayチャージは二重計上しません。</span>
     <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap">
       <input type="checkbox" id="filterExcluded" onchange="renderHistory()" style="width:14px;height:14px" checked>
       除外済みも表示
@@ -235,6 +236,7 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
 
 <!-- 月次 -->
 <div id="tab1" class="section">
+  <div class="notice">支払い月基準：カードは実際の口座引き落とし月で集計します。</div>
   <div class="monthly-box">
     <div class="chart-title">月別収支推移（過去6ヶ月）</div>
     <div class="monthly-wrap"><canvas id="monthlyChart"></canvas></div>
@@ -815,8 +817,32 @@ let expChart=null,incChart=null,monthlyChart=null;
 // ==================== ユーティリティ ====================
 function save(){localStorage.setItem('kakeibo_tx',JSON.stringify(transactions));}
 function fmt(n){return '¥'+Math.round(Math.abs(n)).toLocaleString();}
+// カードは利用日ではなく、実際の口座引き落とし月に一度だけ計上する。
+function paymentMonthNormalize(value){return String(value||'').normalize('NFKC').replace(/\s+/g,'').toUpperCase();}
+function isCardUsageTransaction(tx){return /楽天カード|三井住友カード|SMBCカード|RAKUTENCARD|クレジットカード/.test(paymentMonthNormalize(tx.source));}
+function isCardPaymentWithdrawal(tx){
+  if(tx.type!=='expense'||isCardUsageTransaction(tx)||!Number.isSafeInteger(Number(tx.amount))||Number(tx.amount)<=0)return false;
+  return /ゆうちょ|郵貯|銀行|BANK|口座/.test(paymentMonthNormalize(tx.source))
+    && /自払|引落|振替|口座振替|カード支払/.test(paymentMonthNormalize(tx.name))
+    && /楽天カード|ラクテンカード|三井住友カード|SMBCカード/.test(paymentMonthNormalize(tx.name));
+}
+function getCardPaymentBreakdown(tx){
+  const rows=tx.parentPaymentBreakdown;
+  if(!Array.isArray(rows)||!rows.length)return null;
+  if(rows.some(r=>!r||typeof r.category!=='string'||!r.category.trim()||r.category.trim().length>80||typeof r.amount!=='number'||!Number.isSafeInteger(r.amount)||r.amount<=0))return null;
+  if(rows.reduce((sum,r)=>sum+r.amount,0)!==Number(tx.amount))return null;
+  return rows.map(r=>({category:r.category.trim(),amount:r.amount}));
+}
+function getCardPaymentRows(y,m){
+  const month=String(y)+'-'+String(m+1).padStart(2,'0');
+  return transactions.filter(tx=>isCardPaymentWithdrawal(tx)&&String(tx.date).slice(0,7)===month).flatMap(tx=>{
+    const rows=getCardPaymentBreakdown(tx)||[{category:'カード支払（内訳未確認）',amount:Number(tx.amount)}];
+    return rows.map((row,i)=>({id:'card-payment:'+tx.id+':'+i,date:tx.date,name:'カード支払い',type:'expense',category:row.category,amount:row.amount,source:'口座引き落とし',parentPaymentWithdrawalId:tx.id,paymentMonthSynthetic:true}));
+  });
+}
 function getMonthTx(y,m){
   return transactions.filter(tx=>{
+    if(isCardUsageTransaction(tx)||isCardPaymentWithdrawal(tx)) return false;
     if(tx.excluded) return false;
     if(tx.cashParentId) return false;
     if(tx.tatekaePairId) return false;
@@ -828,11 +854,12 @@ function getMonthTx(y,m){
     if(tx.type==='expense'&&isKaishuComplete(tx.id)) return false;
     const d=new Date(tx.date);
     return d.getFullYear()===y&&d.getMonth()===m;
-  });
+  }).concat(getCardPaymentRows(y,m));
 }
 
 // 差額を考慮した実質支出額を返す
 function getEffectiveAmount(tx){
+  if(tx.paymentMonthSynthetic)return tx.amount;
   if(tx.type!=='expense') return tx.amount;
   const collected=transactions
     .filter(t=>t.kaishuParentId===tx.id)
@@ -860,23 +887,8 @@ function getKaishuRemain(txId){
 }
 
 function getMonthTxWithCash(y,m){
-  // 現金子取引も含めた全取引（グラフ・予算計算用）
-  return transactions.filter(tx=>{
-    if(tx.excluded) return false;
-    // 立替と回収は円グラフ・予算に入れない
-    if(NOT_EXPENSE.includes(tx.category)) return false;
-    const d=new Date(tx.date);
-    if(d.getFullYear()!==y||d.getMonth()!==m) return false;
-    // 現金引き出し親は子取引がある場合は除外し、子取引で計上
-    if(!tx.cashParentId){
-      const isCashWithdraw = tx.source==='ゆうちょ' && tx.type==='expense' && (tx.name.includes('カード')||tx.name.includes('ATM')||tx.name.includes('現金'));
-      if(isCashWithdraw){
-        const subs = transactions.filter(t=>t.cashParentId===tx.id);
-        if(subs.length>0) return false; // 子があれば親を除外
-      }
-    }
-    return true;
-  });
+  // 集計経路を一本化し、現金の二重計上とカード利用日の計上を防ぐ。
+  return getMonthTx(y,m);
 }
 function updateMonthLabel(){
   document.getElementById('monthLabel').textContent=currentYear+'年'+(currentMonth+1)+'月';
@@ -1169,9 +1181,10 @@ function renderBudgetTable(){
   let income=0;
   txs.forEach(t=>{
     if(t.type==='income') income+=t.amount;
-    else bycat[t.category]=(bycat[t.category]||0)+t.amount;
+    else bycat[t.category]=(bycat[t.category]||0)+getEffectiveAmount(t);
   });
-  const cats=CATS_EXP.filter(c=>!NOT_EXPENSE.includes(c)&&!FIXED_CATS.includes(c))
+  const paidCategories=new Set(txs.filter(t=>t.paymentMonthSynthetic).map(t=>t.category));
+  const cats=[...new Set([...CATS_EXP,...Object.keys(bycat)])].filter(c=>(!NOT_EXPENSE.includes(c)||paidCategories.has(c))&&!FIXED_CATS.includes(c))
                      .filter(c=>(budget[c]||0)>0||(bycat[c]||0)>0);
   const fixedCats=FIXED_CATS.filter(c=>(bycat[c]||0)>0);
   let tb=0,ta=0,fa=0;
@@ -1184,7 +1197,7 @@ function renderBudgetTable(){
     const w=Math.min(100,ratio);
     const barCol=ratio>100?'#D85A30':ratio>=90?'#E8743B':ratio>=70?'#EF9F27':'#1D9E75';
     const main='<tr'+(b>0?'':' style="border-bottom:0.5px solid var(--border)"')+'>'
-      +'<td style="padding:7px 0 '+(b>0?'3px':'7px')+';font-size:13px"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+dot+';margin-right:6px"></span>'+c+'</td>'
+      +'<td style="padding:7px 0 '+(b>0?'3px':'7px')+';font-size:13px"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+dot+';margin-right:6px"></span>'+escHtml(c)+'</td>'
       +'<td style="padding:7px 0 '+(b>0?'3px':'7px')+';text-align:right;font-size:13px;color:var(--text2);font-variant-numeric:tabular-nums">'+(b?fmt(b):'—')+'</td>'
       +'<td style="padding:7px 0 '+(b>0?'3px':'7px')+';text-align:right;font-size:13px;font-variant-numeric:tabular-nums">'+(a?fmt(a):'—')+'</td>'
       +'<td style="padding:7px 0 '+(b>0?'3px':'7px')+';text-align:right;font-size:13px;color:'+col+';font-variant-numeric:tabular-nums">'+(b?(d<0?'-':'')+fmt(d):'—')+'</td></tr>';
@@ -1238,7 +1251,7 @@ function renderBudgetTab(){
   const budget=getBudget();
   const txs=getMonthTx(currentYear,currentMonth);
   const bycat={};
-  txs.filter(t=>t.type==='expense').forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+t.amount;});
+  txs.filter(t=>t.type==='expense').forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+getEffectiveAmount(t);});
 
   // 入力フォーム
   const inputEl=document.getElementById('budgetInputList');
@@ -1273,7 +1286,7 @@ function renderBudgetBar(){
   const totalBudget=Object.values(budget).reduce((a,b)=>a+b,0);
   if(!totalBudget){el.innerHTML='';return;}
   const txs=getMonthTx(currentYear,currentMonth);
-  const spent=txs.filter(t=>t.type==='expense').reduce((a,t)=>a+t.amount,0);
+  const spent=txs.filter(t=>t.type==='expense').reduce((a,t)=>a+getEffectiveAmount(t),0);
   const pct=Math.min(100,spent/totalBudget*100);
   const over=spent>totalBudget;
   const color=pct>=90?'#D85A30':pct>=70?'#EF9F27':'#1D9E75';
@@ -1300,7 +1313,7 @@ function renderBudgetProgress(){
   const budget=getBudget();
   const txs=getMonthTx(currentYear,currentMonth);
   const bycat={};
-  txs.filter(t=>t.type==='expense').forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+t.amount;});
+  txs.filter(t=>t.type==='expense').forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+getEffectiveAmount(t);});
 
   const rows=CATS_EXP.filter(cat=>budget[cat]>0).map(cat=>{
     const b=budget[cat];
@@ -1492,7 +1505,7 @@ function renderHistory(){
     const d=new Date(tx.date);
     if(d.getFullYear()!==currentYear||d.getMonth()!==currentMonth) return false;
     if(tx.cashParentId) return false;
-    if(tx.excluded) return showExcluded;
+    if(tx.excluded&&!isCardPaymentWithdrawal(tx)) return showExcluded;
     if(tx.tatekaePairId) return showExcluded; // 立替ペア済みも除外済みと同様に扱う
     return true;
   });
@@ -1514,8 +1527,10 @@ function renderHistory(){
     const catOptions=cats.map(c=>`<option value="${c}" ${c===tx.category?'selected':''}>${c}</option>`).join('')
       + `<option value="__new__">＋ 新しいカテゴリを作成</option>`;
     // 除外済みアイテムのスタイル
-    const excludedStyle=tx.excluded?'opacity:0.45;':'';
-    const excludedBadge=tx.excluded?'<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#88878022;color:var(--text3);margin-left:4px">集計除外</span>':'';
+    const isPayment=isCardPaymentWithdrawal(tx),isUsage=isCardUsageTransaction(tx);
+    const excludedStyle=(tx.excluded&&!isPayment)||isUsage?'opacity:0.45;':'';
+    const paymentBadge=isPayment?'引き落とし月に計上':isUsage?'利用明細（集計対象外）':tx.excluded?'集計除外':'';
+    const excludedBadge=paymentBadge?'<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#88878022;color:var(--text3);margin-left:4px">'+paymentBadge+'</span>':'';
     // 立替判定
     const isTatekae = tx.category==='立替' && !tx.tatekaePairId && !tx.excluded;
     const isTatekaeKaishu = false; // 立替回収カテゴリ廃止
@@ -1535,7 +1550,7 @@ function renderHistory(){
       ${kaishuSubs.map(s=>`<div style="font-size:11px;color:var(--text2);padding:2px 0">・${escHtml(s.name)} +${fmt(s.amount)}</div>`).join('')}
     </div>` : '';
     // 現金引き出し判定
-    const isCashWithdraw = !tx.excluded && tx.source==='ゆうちょ' && tx.type==='expense' && (tx.name.includes('カード') || tx.name.includes('ATM') || tx.name.includes('現金'));
+    const isCashWithdraw = !isPayment && !tx.excluded && tx.source==='ゆうちょ' && tx.type==='expense' && (tx.name.includes('カード') || tx.name.includes('ATM') || tx.name.includes('現金'));
     const subs = transactions.filter(t=>t.cashParentId===tx.id);
     const subTotal = subs.reduce((a,t)=>a+t.amount,0);
     const remain = tx.amount - subTotal;
@@ -2269,7 +2284,7 @@ function renderMonthly(){
     while(m<0){m+=12;y--;}
     months.push(y+'/'+(m+1));
     const txs=getMonthTx(y,m);
-    expData.push(txs.filter(t=>t.type==='expense').reduce((a,t)=>a+t.amount,0));
+    expData.push(txs.filter(t=>t.type==='expense').reduce((a,t)=>a+getEffectiveAmount(t),0));
     incData.push(txs.filter(t=>t.type==='income').reduce((a,t)=>a+t.amount,0));
   }
   if(monthlyChart){monthlyChart.destroy();monthlyChart=null;}
@@ -4099,6 +4114,10 @@ function undoReviewedDuplicates(){
 </script>
 <script src="./cash-withdrawal-review.js?v=20261021"></script>
 <script src="./rakuten-reviewed-import.js?v=20261021"></script>
-<script src="./parent-category-pdf.js?v=20261023"></script>
+<script src="./parent-category-pdf.js?v=20261024"></script>
 </body>
 </html>
+
+
+
+

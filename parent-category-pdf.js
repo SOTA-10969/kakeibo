@@ -1,13 +1,6 @@
 /* Parent-facing PDF: aggregate categories only; no transaction detail is rendered. */
 (function(){
-const norm=v=>String(v||'').normalize('NFKC').replace(/\s+/g,'').toUpperCase();
-function cardUsage(t){return /楽天カード|三井住友カード|SMBCカード|RAKUTENCARD|クレジットカード/.test(norm(t.source));}
-function withdrawal(t){
- if(t.type!=='expense'||cardUsage(t)||!Number.isSafeInteger(Number(t.amount))||Number(t.amount)<=0)return false;
- const bank=/ゆうちょ|郵貯|銀行|BANK|口座/.test(norm(t.source));
- const debit=/自払|引落|振替|口座振替|カード支払/.test(norm(t.name));
- return bank&&debit&&/楽天カード|ラクテンカード|三井住友カード|SMBCカード/.test(norm(t.name));
-}
+function withdrawal(t){return isCardPaymentWithdrawal(t);}
 function selectedWithdrawal(t){return withdrawal(t)&&String(t.date).slice(0,7)===currentYear+'-'+String(currentMonth+1).padStart(2,'0');}
 function validateRows(t,rows){
  if(!Array.isArray(rows)||!rows.length)throw Error('カテゴリ内訳を1件以上入力してください。');
@@ -21,7 +14,7 @@ function validateRows(t,rows){
 }
 function allTransactions(){return typeof transactions==='undefined'?[]:transactions;}
 function model(){
- const rows=getMonthTx(currentYear,currentMonth).filter(t=>!cardUsage(t)&&!withdrawal(t));
+ const rows=getMonthTx(currentYear,currentMonth);
  const payments=allTransactions().filter(selectedWithdrawal);
  const inc=new Map(),exp=new Map();let income=0,expense=0;
  function add(kind,category,amount){
@@ -32,7 +25,7 @@ function model(){
  rows.forEach(t=>add(t.type,t.category,t.type==='expense'?getEffectiveAmount(t):Number(t.amount)));
  const paymentChecks=payments.map(t=>{
   let breakdown;try{breakdown=validateRows(t,t.parentPaymentBreakdown);}catch(e){}
-  (breakdown||[{category:'カード支払（内訳未確認）',amount:Number(t.amount)}]).forEach(r=>add('expense',r.category,r.amount));
+  // The shared month aggregation already includes each withdrawal exactly once.
   return {id:t.id,date:t.date,name:t.name,amount:Number(t.amount),confirmed:!!breakdown,rows:breakdown||[]};
  });
  const entries=(map,kind)=>[...map].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'ja')).map(([category,amount])=>({kind,category,amount}));
@@ -62,7 +55,10 @@ window.saveParentPaymentBreakdown=function(){
  try{
   if(!reviewed||reviewed.raw!==document.getElementById('parentPaymentInput').value||reviewed.year!==currentYear||reviewed.month!==currentMonth)throw Error('入力または表示月が変わりました。もう一度内訳を確認してください。');
   const updates=reviewed.updates.map(u=>{const t=allTransactions().find(t=>t.id===u.id);if(!t||JSON.stringify(t)!==u.before)throw Error('取引が変更されました。もう一度確認してください。');validateRows(t,u.rows);return {t,rows:u.rows};});
-  updates.forEach(u=>{u.t.parentPaymentBreakdown=u.rows;});save();reviewed=null;button.disabled=true;status.textContent='支払い明細のカテゴリ内訳を保存しました。';window.previewParentPDF();
+  const before=updates.map(u=>({t:u.t,had:Object.hasOwn(u.t,'parentPaymentBreakdown'),rows:u.t.parentPaymentBreakdown}));
+  try{updates.forEach(u=>{u.t.parentPaymentBreakdown=u.rows;});save();}
+  catch(e){before.forEach(u=>{if(u.had)u.t.parentPaymentBreakdown=u.rows;else delete u.t.parentPaymentBreakdown;});throw e;}
+  reviewed=null;button.disabled=true;status.textContent='支払い明細のカテゴリ内訳を保存しました。';if(typeof renderAll==='function')renderAll();window.previewParentPDF();
  }catch(e){reviewed=null;button.disabled=true;status.textContent='保存できません：'+e.message;}
 };
 window.parentReportModel=model;

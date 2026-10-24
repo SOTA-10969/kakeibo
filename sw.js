@@ -1,7 +1,7 @@
-const CACHE = 'kakeibo-parent-category-pdf-20261023';
+const CACHE = 'kakeibo-parent-category-pdf-20261024';
 const ASSETS = [
   './index.html',
-  './parent-category-pdf.js?v=20261023',
+  './parent-category-pdf.js?v=20261024',
   './rakuten-reviewed-import.js?v=20261021',
   './cash-withdrawal-review.js?v=20261021',
   './manifest.json',
@@ -55,4 +55,6 @@ self.addEventListener('fetch', e => {
     })
   );
 });
+
+
 
