@@ -1226,17 +1226,16 @@ function renderAssets(){
 function renderBudgetTable(){
   const el=document.getElementById('budgetTable');
   if(!el) return;
-  const budget=getBudget();
+  const budget=Object.fromEntries(Object.entries(getBudget()).filter(([cat])=>!NOT_EXPENSE.includes(cat)&&!FIXED_CATS.includes(cat)));
   const totalBudget=Object.values(budget).reduce((sum,amount)=>sum+amount,0);
-  const txs=getMonthTx(currentYear,currentMonth);
+  const txs=getMonthTx(currentYear,currentMonth).filter(t=>!NOT_EXPENSE.includes(t.category)&&!t.tatekaePairId);
   const bycat={};
   let income=0;
   txs.forEach(t=>{
     if(t.type==='income') income+=t.amount;
     else bycat[t.category]=(bycat[t.category]||0)+getEffectiveAmount(t);
   });
-  const paidCategories=new Set(txs.filter(t=>t.paymentMonthSynthetic).map(t=>t.category));
-  const cats=[...new Set([...CATS_EXP,...Object.keys(bycat)])].filter(c=>(!NOT_EXPENSE.includes(c)||paidCategories.has(c))&&!FIXED_CATS.includes(c))
+  const cats=[...new Set([...CATS_EXP,...Object.keys(budget),...Object.keys(bycat)])].filter(c=>!NOT_EXPENSE.includes(c)&&!FIXED_CATS.includes(c))
                      .filter(c=>(budget[c]||0)>0||(bycat[c]||0)>0);
   const fixedCats=FIXED_CATS.filter(c=>(bycat[c]||0)>0);
   let tb=0,ta=0,fa=0;
@@ -1276,7 +1275,10 @@ function renderBudgetTable(){
   }).join('');
   const rest=tb-ta;  // 予算のある分だけで見た残り
   const restCol=rest<0?'#D85A30':'#1D9E75';
-  el.innerHTML='<table style="width:100%;border-collapse:collapse">'
+  el.innerHTML='<div style="font-size:12px;line-height:1.8;margin-bottom:12px">'
+    +'立替を除いた予算 '+fmt(tb)+' ／ 実質消費額 '+fmt(ta)+' ／ 残り '+(rest<0?'-':'')+fmt(Math.abs(rest))
+    +'<div style="font-size:11px;color:var(--text3)">立替・回収・積立は含みません。固定費は下の別枠に表示します。</div></div>'
+    +'<table style="width:100%;border-collapse:collapse">'
     +'<thead><tr style="border-bottom:0.5px solid var(--border)">'
     +'<th style="text-align:left;padding-bottom:7px;font-size:11px;color:var(--text2);font-weight:500">カテゴリ</th>'
     +'<th style="text-align:right;padding-bottom:7px;font-size:11px;color:var(--text2);font-weight:500">予算</th>'
@@ -1305,7 +1307,7 @@ function renderBudgetTable(){
 function renderBudgetTab(){
   const state=getMonthlyBudgetState();
   const budget=state.budget;
-  const txs=getMonthTx(currentYear,currentMonth);
+  const txs=getMonthTx(currentYear,currentMonth).filter(t=>!NOT_EXPENSE.includes(t.category)&&!t.tatekaePairId);
   const bycat={};
   txs.filter(t=>t.type==='expense').forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+getEffectiveAmount(t);});
 
@@ -1339,11 +1341,11 @@ function renderBudgetTab(){
 function renderBudgetBar(){
   const el=document.getElementById('budgetBar');
   if(!el) return;
-  const budget=getBudget();
+  const budget=Object.fromEntries(Object.entries(getBudget()).filter(([cat])=>!NOT_EXPENSE.includes(cat)&&!FIXED_CATS.includes(cat)));
   const totalBudget=Object.values(budget).reduce((a,b)=>a+b,0);
   if(!totalBudget){const state=getMonthlyBudgetState();el.innerHTML='<div class="notice">'+currentYear+'年'+(currentMonth+1)+'月の予算'+(state.source==='unset'?'は未設定です':'は0円に設定されています')+'。下の「予算を決める・変える」からカテゴリ別に設定できます。</div>';return;}
   const txs=getMonthTx(currentYear,currentMonth);
-  const spent=txs.filter(t=>t.type==='expense').reduce((a,t)=>a+getEffectiveAmount(t),0);
+  const spent=txs.filter(t=>t.type==='expense'&&!NOT_EXPENSE.includes(t.category)&&!FIXED_CATS.includes(t.category)&&!t.tatekaePairId).reduce((a,t)=>a+getEffectiveAmount(t),0);
   const pct=Math.min(100,spent/totalBudget*100);
   const over=spent>totalBudget;
   const color=pct>=90?'#D85A30':pct>=70?'#EF9F27':'#1D9E75';
@@ -1351,7 +1353,7 @@ function renderBudgetBar(){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <span style="font-size:12px;font-weight:500">${currentYear}年${currentMonth+1}月の予算</span>
       <span style="font-size:12px;color:${over?'#D85A30':'var(--text2)'}">
-        ${fmt(spent)} / ${fmt(totalBudget)}
+        実質消費 ${fmt(spent)} / 予算 ${fmt(totalBudget)}
         ${over?'<span style="color:#D85A30;font-weight:600"> 超過！</span>':''}
       </span>
     </div>
@@ -1361,19 +1363,20 @@ function renderBudgetBar(){
     <div style="font-size:11px;color:var(--text2);margin-top:5px;text-align:right">
       残り ${over?'<span style="color:#D85A30">-</span>':''}${fmt(Math.abs(totalBudget-spent))}
     </div>
+    <div style="font-size:10px;color:var(--text3);margin-top:4px">立替・回収・積立を除いた生活費。固定費は別枠です。</div>
   </div>`;
 }
 
 function renderBudgetProgress(){
   const el=document.getElementById('budgetProgress');
   if(!el) return;
-  const budget=getBudget();
+  const budget=Object.fromEntries(Object.entries(getBudget()).filter(([cat])=>!NOT_EXPENSE.includes(cat)&&!FIXED_CATS.includes(cat)));
   const totalBudget=Object.values(budget).reduce((sum,amount)=>sum+amount,0);
   const txs=getMonthTx(currentYear,currentMonth);
   const bycat={};
-  txs.filter(t=>t.type==='expense').forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+getEffectiveAmount(t);});
+  txs.filter(t=>t.type==='expense'&&!NOT_EXPENSE.includes(t.category)&&!t.tatekaePairId).forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+getEffectiveAmount(t);});
 
-  const rows=CATS_EXP.filter(cat=>budget[cat]>0).map(cat=>{
+  const rows=[...new Set([...CATS_EXP,...Object.keys(budget)])].filter(cat=>budget[cat]>0).map(cat=>{
     const b=budget[cat];
     const spent=bycat[cat]||0;
     const pct=Math.min(100,spent/b*100);
