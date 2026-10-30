@@ -1,4 +1,4 @@
-const CACHE = 'kakeibo-monthly-budget-20261024';
+const CACHE = 'kakeibo-budget-usage-20261030';
 const ASSETS = [
   './index.html',
   './parent-category-pdf.js?v=20261024b',
