@@ -201,7 +201,13 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg3);
     <details style="margin-top:12px;border-top:0.5px solid var(--border);padding-top:10px">
       <summary style="font-size:12px;color:var(--text2);cursor:pointer">予算を決める・変える</summary>
       <div style="margin-top:10px">
+        <p style="font-size:12px;color:var(--text2);line-height:1.7">固定費を除いた費用項目を、この月ごとに追加・削除できます。変更後は「保存」を押してください。項目を削除しても取引履歴と実績は残ります。</p>
         <div id="budgetInputList"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <input id="budgetNewCategory" list="budgetCategoryOptions" maxlength="60" placeholder="追加する費用項目を選択・入力" aria-label="追加する費用項目" style="flex:1;min-width:160px;padding:8px;background:var(--bg2);color:var(--text);border:0.5px solid var(--border);border-radius:var(--radius)">
+          <datalist id="budgetCategoryOptions"></datalist>
+          <button type="button" onclick="addBudgetCategory()" style="padding:8px 12px;background:var(--bg2);color:var(--text);border:0.5px solid var(--border);border-radius:var(--radius);cursor:pointer">＋ 項目を追加</button>
+        </div>
         <button onclick="saveBudget()" style="width:100%;margin-top:12px;padding:10px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;background:var(--text);color:var(--bg);border:none">保存</button>
         <div id="budgetProgress" style="display:none"></div>
       </div>
@@ -1084,20 +1090,54 @@ function getMonthlyBudgetState(y,m){
   return {key,source:preset===null?'unset':'preset',budget:preset||{}};
 }
 function getBudget(y,m){return getMonthlyBudgetState(y,m).budget;}
+// 参照シート「シート1」の固定費（ガス・水道・サブスクを含む）。
+// 他の画面の分類は変えず、予算画面の対象だけを定義する。
+const BUDGET_FIXED_CATS=[...FIXED_CATS.filter(c=>c!=='美容'),'ガス','水道','エニタイム','バイク本体（オリコ）','バイク保険（あいおい）','アイパッド','サブスク（Amazon）','サブスク（Amazon music)','サブスク（Amazon prime student）','iCloud+ 50GB','Goodnotes'];
+function isBudgetCategory(cat){return !NOT_EXPENSE.includes(cat)&&!BUDGET_FIXED_CATS.includes(cat);}
+function budgetCategoryNames(){
+  return [...new Set([...CATS_EXP,...getCustomCats().filter(c=>c.type==='expense'||c.type==='both').map(c=>c.name),...Object.keys(getBudget()),...getMonthTx(currentYear,currentMonth).filter(t=>t.type==='expense').map(t=>t.category)])].filter(isBudgetCategory);
+}
+function budgetInputRow(cat,amount,spent){
+  return `<div class="budget-row" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <span style="font-size:13px;flex:1;min-width:70px;overflow-wrap:anywhere">${escHtml(cat)}</span>
+    <input class="budget-input" data-cat="${escHtml(cat)}" aria-label="${escHtml(cat)}の予算" type="number" min="0" step="1" value="${amount}" placeholder="0" style="width:100px;padding:7px;border:0.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text);font-size:13px">
+    <span style="font-size:11px;color:var(--text2)">使用: ${fmt(spent)}</span>
+    <button type="button" aria-label="${escHtml(cat)}を予算から削除" onclick="this.closest('.budget-row').remove()" style="padding:7px;background:none;color:var(--red);border:0.5px solid var(--border);border-radius:var(--radius);cursor:pointer">削除</button>
+  </div>`;
+}
+function addBudgetCategory(){
+  const form=document.getElementById('budgetInputList'),input=document.getElementById('budgetNewCategory');
+  if(!form||form.dataset.budgetMonth!==budgetKey()){renderBudgetTab();return;}
+  const cat=input.value.trim();
+  if(!cat)return alert('費用項目を選択または入力してください。');
+  if(cat.length>60)return alert('費用項目は60文字以内で入力してください。');
+  if(!isBudgetCategory(cat))return alert('固定費・立替・回収・積立は予算項目に追加できません。');
+  if([...form.querySelectorAll('.budget-input')].some(el=>el.dataset.cat===cat))return alert('この項目は追加済みです。');
+  const spent=getMonthTx(currentYear,currentMonth).filter(t=>t.type==='expense'&&t.category===cat&&!t.tatekaePairId).reduce((sum,t)=>sum+getEffectiveAmount(t),0);
+  form.insertAdjacentHTML('beforeend',budgetInputRow(cat,0,spent));
+  input.value='';
+  [...form.querySelectorAll('.budget-input')].at(-1).focus();
+}
 function saveBudget(){
   const form=document.getElementById('budgetInputList'),key=budgetKey();
   if(!form||form.dataset.budgetMonth!==key){
     renderBudgetTab();alert('表示月が変わりました。この月の予算を確認して、もう一度保存してください。');return;
   }
-  const budget={};let invalid=false;
+  const budget=Object.create(null);let invalid=false;
   form.querySelectorAll('.budget-input').forEach(el=>{
     const val=el.value.trim()===''?0:Number(el.value);
     if(!Number.isFinite(val)||val<0){invalid=true;return;}
-    if(val>0)budget[el.dataset.cat]=val;
+    if(isBudgetCategory(el.dataset.cat))budget[el.dataset.cat]=val;
   });
   if(invalid){alert('予算には0以上の金額を入力してください。');return;}
   try{localStorage.setItem('kakeibo_budget_'+key,JSON.stringify(budget));}
   catch(e){alert('予算を保存できませんでした。もう一度お試しください。');return;}
+  // 新しい項目は取引登録でも選べる支出カテゴリとして保存する。
+  const customCats=getCustomCats();
+  Object.keys(budget).forEach(name=>{
+    if(!CATS_EXP.includes(name)&&!customCats.some(c=>c.name===name&&(c.type==='expense'||c.type==='both')))customCats.push({name,type:'expense',color:'#888780'});
+  });
+  localStorage.setItem('kakeibo_custom_cats',JSON.stringify(customCats));
   if(typeof scheduleMonthlyBudgetSync==='function')scheduleMonthlyBudgetSync();
   renderBudgetBar();renderBudgetTab();
   alert(key+' の予算を保存しました。他の月の予算は変更しません。');
@@ -1226,7 +1266,7 @@ function renderAssets(){
 function renderBudgetTable(){
   const el=document.getElementById('budgetTable');
   if(!el) return;
-  const budget=Object.fromEntries(Object.entries(getBudget()).filter(([cat])=>!NOT_EXPENSE.includes(cat)&&!FIXED_CATS.includes(cat)));
+  const budget=Object.fromEntries(Object.entries(getBudget()).filter(([cat])=>!NOT_EXPENSE.includes(cat)&&!BUDGET_FIXED_CATS.includes(cat)));
   const livingBudget=Object.values(budget).reduce((sum,amount)=>sum+amount,0);
   const monthKey=currentYear+'-'+String(currentMonth+1).padStart(2,'0');
   const fixedBudget=typeof MONTH_FIXED!=='undefined'&&Object.hasOwn(MONTH_FIXED,monthKey)?MONTH_FIXED[monthKey]:null;
@@ -1238,9 +1278,9 @@ function renderBudgetTable(){
     if(t.type==='income') income+=t.amount;
     else bycat[t.category]=(bycat[t.category]||0)+getEffectiveAmount(t);
   });
-  const cats=[...new Set([...CATS_EXP,...Object.keys(budget),...Object.keys(bycat)])].filter(c=>!NOT_EXPENSE.includes(c)&&!FIXED_CATS.includes(c))
-                     .filter(c=>(budget[c]||0)>0||(bycat[c]||0)>0);
-  const fixedCats=FIXED_CATS.filter(c=>(bycat[c]||0)>0);
+  const cats=[...new Set([...CATS_EXP,...Object.keys(budget),...Object.keys(bycat)])].filter(c=>!NOT_EXPENSE.includes(c)&&!BUDGET_FIXED_CATS.includes(c))
+                     .filter(c=>Object.hasOwn(budget,c)||(bycat[c]||0)>0);
+  const fixedCats=BUDGET_FIXED_CATS.filter(c=>(bycat[c]||0)>0);
   let tb=0,ta=0,fa=0;
   const row=(c,b,a,isFixed=false)=>{
     const d=b-a;
@@ -1269,7 +1309,7 @@ function renderBudgetTable(){
   };
   const fixedBody=fixedCats.map(c=>{ fa+=bycat[c]||0; return row(c,0,bycat[c]||0,true); }).join('');
   const fixedHead=fixedCats.length
-    ? '<tr><td colspan="4" style="padding:12px 0 5px;font-size:11px;color:var(--text3)">毎月決まって出るもの（予算では見ない）</td></tr>'
+    ? '<tr><td colspan="4" style="padding:12px 0 5px;font-size:11px;color:var(--text3)">毎月決まって出るもの（予算の追加・削除の対象外）</td></tr>'
     : '';
   const body=cats.map(c=>{
     const b=budget[c]||0,a=bycat[c]||0;
@@ -1320,29 +1360,17 @@ function renderBudgetTab(){
   const bycat={};
   txs.filter(t=>t.type==='expense').forEach(t=>{bycat[t.category]=(bycat[t.category]||0)+getEffectiveAmount(t);});
 
-  // 入力フォーム
+  // 保存済みの項目だけを復元する。0円の項目と削除済みの項目を区別する。
   const inputEl=document.getElementById('budgetInputList');
   if(inputEl){
     inputEl.dataset.budgetMonth=state.key;
-    inputEl.innerHTML=CATS_EXP.filter(c=>!FIXED_CATS.includes(c)&&!NOT_EXPENSE.includes(c)).map(cat=>{
-      const spent=bycat[cat]||0;
-      const b=budget[cat]||0;
-      return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <span style="font-size:13px;flex:1;min-width:60px">${cat}</span>
-        <div style="position:relative;flex:1">
-          <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text2)">¥</span>
-          <input class="budget-input" data-cat="${cat}" type="number" value="${b||''}" placeholder="0"
-            style="width:100%;padding:7px 8px 7px 20px;border:0.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text);font-size:13px">
-        </div>
-        <span style="font-size:11px;color:var(--text2);flex-shrink:0;min-width:60px;text-align:right">使用: ${fmt(spent)}</span>
-      </div>`;
-    }).join('');
-    inputEl.insertAdjacentHTML('afterbegin',
-      '<div style="font-size:11px;color:var(--text2);margin-bottom:10px">'
+    inputEl.innerHTML='<div style="font-size:11px;color:var(--text2);margin-bottom:10px">'
       +currentYear+'年'+(currentMonth+1)+'月の予算'
-      +(state.source==='saved'?'（この月に保存済み）':state.source==='preset'?'（この月の予算表）':'は未設定です')
-      +'</div>');
+      +(state.source==='saved'?'（この月に保存済み）':state.source==='preset'?'（この月の予算表）':'は未設定です')+'</div>'
+      +Object.entries(budget).filter(([cat])=>isBudgetCategory(cat)).map(([cat,b])=>budgetInputRow(cat,b,bycat[cat]||0)).join('');
   }
+  const options=document.getElementById('budgetCategoryOptions');
+  if(options)options.innerHTML=budgetCategoryNames().map(cat=>'<option value="'+escHtml(cat)+'"></option>').join('');
   renderBudgetTable();
   renderBudgetProgress();
 }
@@ -1350,7 +1378,7 @@ function renderBudgetTab(){
 function renderBudgetBar(){
   const el=document.getElementById('budgetBar');
   if(!el) return;
-  const budget=Object.fromEntries(Object.entries(getBudget()).filter(([cat])=>!NOT_EXPENSE.includes(cat)&&!FIXED_CATS.includes(cat)));
+  const budget=Object.fromEntries(Object.entries(getBudget()).filter(([cat])=>!NOT_EXPENSE.includes(cat)&&!BUDGET_FIXED_CATS.includes(cat)));
   const livingBudget=Object.values(budget).reduce((a,b)=>a+b,0);
   const monthKey=currentYear+'-'+String(currentMonth+1).padStart(2,'0');
   const fixedBudget=typeof MONTH_FIXED!=='undefined'&&Object.hasOwn(MONTH_FIXED,monthKey)?MONTH_FIXED[monthKey]:null;
@@ -1383,7 +1411,7 @@ function renderBudgetBar(){
 function renderBudgetProgress(){
   const el=document.getElementById('budgetProgress');
   if(!el) return;
-  const budget=Object.fromEntries(Object.entries(getBudget()).filter(([cat])=>!NOT_EXPENSE.includes(cat)&&!FIXED_CATS.includes(cat)));
+  const budget=Object.fromEntries(Object.entries(getBudget()).filter(([cat])=>!NOT_EXPENSE.includes(cat)&&!BUDGET_FIXED_CATS.includes(cat)));
   const monthKey=currentYear+'-'+String(currentMonth+1).padStart(2,'0');
   const fixedBudget=typeof MONTH_FIXED!=='undefined'&&Object.hasOwn(MONTH_FIXED,monthKey)?MONTH_FIXED[monthKey]:null;
   const totalBudget=fixedBudget===null||getMonthlyBudgetState().source==='unset'?null:Object.values(budget).reduce((sum,amount)=>sum+amount,0)+fixedBudget;
@@ -1400,7 +1428,7 @@ function renderBudgetProgress(){
     const remain=b-spent;
     return `<div style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
-        <span style="font-weight:500">${cat}</span>
+        <span style="font-weight:500">${escHtml(cat)}</span>
         <span style="color:${over?'#D85A30':'var(--text2)'}">
           ${fmt(spent)}<span style="color:var(--text3)"> / ${fmt(b)}</span>
         </span>
